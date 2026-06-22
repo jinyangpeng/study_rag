@@ -903,6 +903,63 @@ async def get_document(
     return doc
 
 
+@router.get(
+    "/kbs/{kb_id}/documents/{doc_id}/chunks",
+    summary="查看文档的所有分块",
+    description=(
+        "按 doc_id 过滤向量库，返回该文档的所有 chunk 列表（按 chunk_index 升序）。\n\n"
+        "支持分页：\n"
+        "- `limit`: 返回的 chunk 数上限（默认 100）\n"
+        "- `offset`: 分页偏移（默认 0）\n\n"
+        "用于管理 UI 的「查看分块」功能，调试切块效果。"
+    ),
+    responses={
+        404: {"description": "KB 不存在"},
+        200: {"description": "返回 chunks 列表（可能为空）"},
+    },
+)
+async def list_document_chunks(
+    kb_id: str,
+    doc_id: str,
+    request: Request,
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> dict[str, Any]:
+    """列出文档的所有 chunks。"""
+    # 解析 query params
+    qp = request.query_params
+    try:
+        limit = int(qp.get("limit", "100"))
+        offset = int(qp.get("offset", "0"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"invalid query param: {e}") from e
+    if limit < 1 or limit > 1000:
+        raise HTTPException(status_code=400, detail="limit must be in [1, 1000]")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be >= 0")
+
+    manager = get_manager()
+    # 验证 KB 存在
+    if manager._registry.get(kb_id) is None:
+        raise HTTPException(status_code=404, detail=f"KB '{kb_id}' not found")
+
+    try:
+        total = await manager.get_chunk_count(kb_id, doc_id)
+        chunks = await manager.list_chunks(kb_id, doc_id, limit=limit, offset=offset)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    get_metrics().inc(AdminMetrics.REQUESTS, {"endpoint": "list_document_chunks"})
+    return {
+        "kb_id": kb_id,
+        "doc_id": doc_id,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "chunks": [c.model_dump(mode="json") for c in chunks],
+    }
+
+
 @router.delete(
     "/kbs/{kb_id}/documents/{doc_id}",
     summary="删除文档",
