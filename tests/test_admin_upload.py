@@ -365,3 +365,99 @@ async def test_preview_chunk_semantic_kb_without_embedder_400(
     assert (
         "embed" in detail.lower() or "semantic" in detail.lower()
     ), f"unexpected error detail: {detail}"
+
+
+# ---- Phase 6.2: 文档分块查看端点 ----
+
+
+@needs_li
+@pytest.mark.asyncio
+async def test_list_document_chunks(app_with_kb: AsyncClient) -> None:
+    """上传后能列出该文档的所有 chunks。"""
+    files = {
+        "file": (
+            "note.txt",
+            io.BytesIO(b"Sentence 1. Sentence 2. Sentence 3. " * 100),
+            "text/plain",
+        )
+    }
+    data = {"doc_id": "list-chunks-1", "title": "List Test", "parser": "sentence_512"}
+    r = await app_with_kb.post(
+        "/admin/kbs/kb_up_admin/documents/upload", files=files, data=data
+    )
+    assert r.status_code == 200, r.text
+
+    # 列出 chunks
+    r = await app_with_kb.get(
+        "/admin/kbs/kb_up_admin/documents/list-chunks-1/chunks?limit=50"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["kb_id"] == "kb_up_admin"
+    assert body["doc_id"] == "list-chunks-1"
+    assert body["total"] >= 1
+    assert len(body["chunks"]) >= 1
+    # 验证每个 chunk 有完整字段
+    for c in body["chunks"]:
+        assert "chunk_id" in c
+        assert "chunk_index" in c
+        assert "text" in c
+        assert "char_count" in c
+        assert c["char_count"] == len(c["text"])
+    # chunks 按 chunk_index 升序
+    indices = [c["chunk_index"] for c in body["chunks"]]
+    assert indices == sorted(indices)
+
+
+@needs_li
+@pytest.mark.asyncio
+async def test_list_chunks_pagination(app_with_kb: AsyncClient) -> None:
+    """分页：limit + offset 正确。"""
+    files = {
+        "file": ("big.txt", io.BytesIO(b"X. " * 5000), "text/plain")
+    }  # 10000 chars
+    data = {"doc_id": "page-1", "title": "Page Test", "parser": "sentence_512"}
+    r = await app_with_kb.post(
+        "/admin/kbs/kb_up_admin/documents/upload", files=files, data=data
+    )
+    assert r.status_code == 200, r.text
+
+    # 取前 2 个
+    r1 = await app_with_kb.get(
+        "/admin/kbs/kb_up_admin/documents/page-1/chunks?limit=2&offset=0"
+    )
+    assert r1.status_code == 200
+    # 取下 2 个
+    r2 = await app_with_kb.get(
+        "/admin/kbs/kb_up_admin/documents/page-1/chunks?limit=2&offset=2"
+    )
+    assert r2.status_code == 200
+    assert r1.json()["chunks"][0]["chunk_index"] == 0
+    assert r1.json()["chunks"][1]["chunk_index"] == 1
+    if len(r2.json()["chunks"]) >= 1:
+        assert r2.json()["chunks"][0]["chunk_index"] == 2
+
+
+@needs_li
+@pytest.mark.asyncio
+async def test_list_chunks_unknown_kb_404(app_with_kb: AsyncClient) -> None:
+    """KB 不存在 → 404。"""
+    r = await app_with_kb.get(
+        "/admin/kbs/nonexistent_kb/documents/x/chunks"
+    )
+    assert r.status_code == 404
+
+
+@needs_li
+@pytest.mark.asyncio
+async def test_list_chunks_unknown_doc_returns_empty(
+    app_with_kb: AsyncClient,
+) -> None:
+    """doc 不存在 → 200 + 空 list（不是 404，因为 doc_id 在 metadata 里查不到是合法状态）。"""
+    r = await app_with_kb.get(
+        "/admin/kbs/kb_up_admin/documents/nonexistent_doc/chunks"
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 0
+    assert body["chunks"] == []
