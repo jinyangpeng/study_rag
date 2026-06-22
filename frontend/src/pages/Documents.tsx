@@ -23,11 +23,13 @@ import {
   DeleteOutlined,
   EyeOutlined,
   ArrowLeftOutlined,
+  BlockOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams } from "react-router-dom";
 import { useApi } from "../api/client";
 import type { DocumentMeta } from "../api/types";
 import AddDocumentDrawer from "../components/AddDocumentDrawer";
+import ChunksDrawer from "../components/ChunksDrawer";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -40,6 +42,8 @@ export default function Documents() {
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [detail, setDetail] = useState<DocumentMeta | null>(null);
+  const [chunksOpen, setChunksOpen] = useState(false);
+  const [chunksDocId, setChunksDocId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -171,9 +175,19 @@ export default function Documents() {
             },
             {
               title: "操作",
-              width: 180,
+              width: 280,
               render: (_, r) => (
                 <Space size="small">
+                  <Button
+                    size="small"
+                    icon={<BlockOutlined />}
+                    onClick={() => {
+                      setChunksDocId(r.doc_id);
+                      setChunksOpen(true);
+                    }}
+                  >
+                    查看分块
+                  </Button>
                   <Button
                     size="small"
                     icon={<EyeOutlined />}
@@ -212,6 +226,17 @@ export default function Documents() {
         onSuccess={() => {
           setAddOpen(false);
           void load();
+        }}
+      />
+
+      {/* Chunks Drawer */}
+      <ChunksDrawer
+        open={chunksOpen}
+        kbId={kbId}
+        docId={chunksDocId}
+        onClose={() => {
+          setChunksOpen(false);
+          setChunksDocId(null);
         }}
       />
 

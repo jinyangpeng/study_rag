@@ -169,3 +169,20 @@ export interface UploadDocumentResponse {
   size_bytes: number;
   parser: string;
 }
+
+export interface ChunkInfo {
+  chunk_id: string;
+  chunk_index: number;
+  text: string;
+  char_count: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface ChunksListResponse {
+  kb_id: string;
+  doc_id: string;
+  total: number;
+  limit: number;
+  offset: number;
+  chunks: ChunkInfo[];
+}

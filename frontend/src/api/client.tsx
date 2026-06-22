@@ -29,6 +29,7 @@ import axios, {
 import { App as AntdApp, Modal, Input } from "antd";
 import type {
   ChunkPreviewResponse,
+  ChunksListResponse,
   DocumentCreate,
   DocumentChunkedCreate,
   DocumentMeta,
@@ -306,6 +307,23 @@ class ApiClient {
         doc_id: string;
       }>(
         `/admin/kbs/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async listDocumentChunks(
+    kbId: string,
+    docId: string,
+    limit = 100,
+    offset = 0
+  ): Promise<ChunksListResponse> {
+    try {
+      const { data } = await this.http.get<ChunksListResponse>(
+        `/admin/kbs/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/chunks`,
+        { params: { limit, offset } }
       );
       return data;
     } catch (e) {
