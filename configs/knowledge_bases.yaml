@@ -1,0 +1,84 @@
+knowledge_bases:
+- kb_id: rd_frontend
+  name: 前端技术文档
+  description: '研发部前端技术栈文档。包含 React/Vue 框架使用、组件库、 前端工程化（webpack/vite）、性能优化、浏览器兼容性等内容。
+    适合前端开发、UI 实现、性能问题相关问题。 '
+  department: rd
+  collection: kb_rd_frontend
+  embedding: ollama_bge_large
+  reranker: none
+  enabled: true
+  extra: {}
+- kb_id: rd_backend
+  name: 后端服务文档
+  description: '研发部后端服务设计文档。包含 API 设计、数据库 schema、
+
+    微服务架构、缓存策略、消息队列、并发处理等内容。
+
+    适合后端开发、API 设计、数据建模相关问题。
+
+    '
+  department: rd
+  collection: kb_rd_backend
+  embedding: ollama_bge_large
+  reranker: none
+  enabled: true
+  extra: {}
+- kb_id: rd_infra
+  name: 基础设施文档
+  description: '研发部基础设施文档。包含 K8s/Docker 部署、CI/CD 流水线、
+
+    监控告警、网络配置、中间件（MySQL/Redis/Kafka）、SRE 实践等内容。
+
+    适合运维、DevOps、SRE、部署相关问题。
+
+    '
+  department: rd
+  collection: kb_rd_infra
+  embedding: ollama_bge_large
+  reranker: none
+  enabled: true
+  extra: {}
+- kb_id: hr_policies
+  name: 公司制度
+  description: '公司各项规章制度。包含考勤、请假、报销、晋升、调薪、离职流程等。
+
+    适合所有 HR 流程、行政制度相关问题。
+
+    '
+  department: hr
+  collection: kb_hr_policies
+  embedding: ollama_bge_large
+  reranker: none
+  enabled: true
+  extra: {}
+- kb_id: hr_training
+  name: 培训资料
+  description: '新员工入职培训、在职培训、技能提升资料。
+
+    适合新人指引、培训安排、学习资源相关问题。
+
+    '
+  department: hr
+  collection: kb_hr_training
+  embedding: ollama_bge_large
+  reranker: none
+  enabled: true
+  extra: {}
+- kb_id: finance_reports
+  name: 财务报表
+  description: '财务部报表与分析。包含月度/季度/年度报表、预算执行、成本分析等。 适合财务数据、预算、成本相关问题。 '
+  department: finance
+  collection: kb_finance_reports
+  embedding: ollama_bge_large
+  reranker: none
+  enabled: true
+  extra: {}
+- kb_id: rd_test
+  name: test
+  description: test
+  department: MY
+  collection: kb_rd_test
+  embedding: ollama_bge_large
+  enabled: true
+  extra: {}

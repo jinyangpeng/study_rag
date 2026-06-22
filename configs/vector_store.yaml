@@ -1,0 +1,60 @@
+# Vector Store 配置
+#
+# 不同部署形态（同一份代码，按需切换 provider）：
+#   - mock        : 内存版，开发/测试
+#   - milvus      : Milvus Standalone / Cluster / Lite（本地文件）
+#   - qdrant      : Qdrant（轻量，单二进制）
+#   - weaviate    : Weaviate（特性丰富）
+#
+# 切换方式：改下面的 provider，重启服务即可。知识库 collection 名字保持不变。
+#
+# 安装提示：
+#   pip install study-rag[vector-milvus]
+#   pip install study-rag[vector-qdrant]
+#   pip install study-rag[all]
+
+vector_store:
+  # ============= Milvus Standalone（默认） =============
+  # provider 可选值（与 [vector-milvus]/[vector-qdrant] extras 对应）：
+  #   - mock     : 内存版，零依赖，重启丢数据（开发/测试）
+  #   - milvus   : Milvus Lite / Standalone / Cluster / Zilliz（推荐生产）
+  #   - qdrant   : 轻量单二进制
+  #   - weaviate : 特性丰富
+  provider: milvus
+  uri: http://localhost:19530
+  extra: {}
+
+  # ============= Mock（开发/测试） =============
+  # provider: mock
+  # uri: ""
+  # extra: {}
+
+  # ============= Milvus（推荐生产用） =============
+  # Milvus Lite（本地嵌入式，适合小规模 / 单机测试）:
+  #   uri: ./milvus.db
+  #
+  # Milvus Standalone（docker-compose 起一个）:
+  #   uri: http://localhost:19530
+  #
+  # Zilliz Cloud（托管服务）:
+  #   uri: https://xxx.zillizcloud.com
+  #   extra.token: ${ZILLIZ_TOKEN}
+  #
+  # provider: milvus
+  # uri: ${MILVUS_URI:-./milvus.db}
+  # extra:
+  #   token: ${MILVUS_TOKEN}                # Zilliz / 鉴权时必填
+  #   db_name: ${MILVUS_DB:-default}        # 数据库名
+  #   batch_size: 1000                      # 单批插入上限
+  #   index:
+  #     type: AUTOINDEX                     # 2.4+ 自适应，推荐
+  #     # type: HNSW                       # 显式 HNSW
+  #     # type: IVF_FLAT                    # 经典倒排
+  #     metric_type: COSINE                 # COSINE / L2 / IP
+
+  # ============= Qdrant（轻量替代） =============
+  # provider: qdrant
+  # uri: http://localhost:6333
+  # extra:
+  #   api_key: ${QDRANT_API_KEY}
+  #   batch_size: 500

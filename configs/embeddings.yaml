@@ -1,0 +1,117 @@
+embeddings:
+  mock:
+    provider: mock
+    model_name: mock-embedder
+    dimension: 128
+    batch_size: 32
+    description: 基于 hash 的占位实现，不依赖任何外部服务
+  bge_m3:
+    provider: bge
+    model_name: BAAI/bge-m3
+    dimension: 1024
+    batch_size: 16
+    extra:
+      use_fp16: true
+    description: BGE-M3 多语言模型，1024 维，中文/英文/代码混合表现优秀
+  bge_large_zh:
+    provider: bge_zh
+    model_name: BAAI/bge-large-zh-v1.5
+    dimension: 1024
+    batch_size: 16
+    extra:
+      use_fp16: true
+    description: BGE 中文大模型，自动加中文 query 前缀
+  bge_small_zh:
+    provider: bge_zh
+    model_name: BAAI/bge-small-zh-v1.5
+    dimension: 512
+    batch_size: 32
+    extra:
+      use_fp16: true
+    description: BGE 中文小模型，速度快资源省
+  openai_small:
+    provider: openai
+    model_name: text-embedding-3-small
+    dimension: 1536
+    batch_size: 100
+    extra:
+      api_key: ${OPENAI_API_KEY}
+      timeout: 30.0
+      max_retries: 3
+    description: OpenAI text-embedding-3-small，性价比高
+  openai_large:
+    provider: openai
+    model_name: text-embedding-3-large
+    dimension: 3072
+    batch_size: 50
+    extra:
+      api_key: ${OPENAI_API_KEY}
+    description: OpenAI text-embedding-3-large，质量最高
+  qwen_embedding:
+    provider: openai
+    model_name: text-embedding-v3
+    dimension: 1024
+    batch_size: 50
+    extra:
+      api_key: ${DASHSCOPE_API_KEY}
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    description: 通义千问 text-embedding-v3，通过 OpenAI 兼容接口
+  zhipu_embedding:
+    provider: openai
+    model_name: embedding-2
+    dimension: 1024
+    batch_size: 50
+    extra:
+      api_key: ${ZHIPUAI_API_KEY}
+      base_url: https://open.bigmodel.cn/api/paas/v4
+    description: 智谱 AI embedding-2
+  azure_openai:
+    provider: azure_openai
+    model_name: text-embedding-3-small
+    dimension: 1536
+    batch_size: 100
+    extra:
+      api_key: ${AZURE_OPENAI_API_KEY}
+      base_url: https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT
+      api_version: '2024-02-01'
+    description: Azure OpenAI
+  local_bge_m3:
+    provider: openai
+    model_name: BAAI/bge-m3
+    dimension: 1024
+    batch_size: 16
+    extra:
+      base_url: http://10.0.0.5:8080/v1
+      api_key: ${LOCAL_EMBED_API_KEY}
+      timeout: 30.0
+    description: 本地 BGE-M3（OpenAI 兼容协议，1024 维，多语言）
+  local_bge_large_zh:
+    provider: openai
+    model_name: BAAI/bge-large-zh-v1.5
+    dimension: 1024
+    batch_size: 16
+    extra:
+      base_url: http://10.0.0.5:8081/v1
+      api_key: ${LOCAL_EMBED_API_KEY}
+      timeout: 30.0
+    description: 本地 BGE-large-zh（OpenAI 兼容，1024 维，中文）
+  local_bge_small_zh:
+    provider: openai
+    model_name: BAAI/bge-small-zh-v1.5
+    dimension: 512
+    batch_size: 32
+    extra:
+      base_url: http://10.0.0.5:8082/v1
+      api_key: ${LOCAL_EMBED_API_KEY}
+      timeout: 30.0
+    description: 本地 BGE-small-zh（OpenAI 兼容，512 维，中文）
+  ollama_bge_large:
+    provider: openai
+    model_name: quentinz/bge-large-zh-v1.5:latest
+    dimension: 1024
+    batch_size: 16
+    extra:
+      base_url: http://localhost:11434/v1
+      api_key: ollama
+      timeout: 60.0
+    description: Ollama 本地 bge-large（OpenAI 兼容端点，1024 维）

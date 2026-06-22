@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Build artifacts
+src/study_rag/web/dist/
+
+# Windows shell artifacts
+$null
+Null.*
+
+# Env
+.env
+.env.local

@@ -1,0 +1,11 @@
+# LLM 配置（用于响应合成等场景，当前未启用）
+
+llm:
+  provider: mock
+  model_name: mock-llm
+
+# 后续可启用：
+# llm:
+#   provider: openai
+#   model_name: gpt-4o-mini
+#   api_key: ${OPENAI_API_KEY}

@@ -1,0 +1,103 @@
+# Reranker 配置
+#
+# 同一实例可注册多个 reranker，知识库通过 `reranker` 字段引用
+# 不同的 KB 可以用不同的 reranker（与 embedding 类似）
+#
+# 安装提示：
+#   pip install study-rag[reranker-bge]       # BGE（本地）
+#   pip install study-rag[reranker-cohere]    # Cohere（API）
+#   pip install study-rag[all]                # 全部
+
+rerankers:
+  # ============= No-op（默认，不重排） =============
+  none:
+    provider: none
+    top_k: 5
+    description: "不做重排，仅截断到 top_k。用于不想启用重排的 KB。"
+
+  passthrough:
+    provider: mock
+    top_k: 5
+    description: "同 none，保留 mock 作为别名。"
+
+  # ============= BGE（本地推理，推荐中文/多语言） =============
+  bge_m3:
+    provider: bge
+    model_name: BAAI/bge-reranker-v2-m3
+    top_k: 5
+    extra:
+      use_fp16: true
+      batch_size: 32
+      # device: cuda:0
+      # cache_dir: /path/to/models
+    description: "BGE Reranker v2-m3，多语言（含中文），本地推理"
+
+  bge_large:
+    provider: bge
+    model_name: BAAI/bge-reranker-large
+    top_k: 5
+    extra:
+      use_fp16: true
+      batch_size: 16
+    description: "BGE Reranker large，英文为主"
+
+  # ============= Cohere（API 调用，多语言质量高） =============
+  cohere_v3:
+    provider: cohere
+    model_name: rerank-v3.5
+    top_k: 5
+    extra:
+      api_key: ${COHERE_API_KEY}
+      timeout: 30.0
+      max_retries: 3
+    description: "Cohere rerank-v3.5，100+ 语言，质量高，API 调用"
+
+  cohere_en:
+    provider: cohere
+    model_name: rerank-english-v3.0
+    top_k: 5
+    extra:
+      api_key: ${COHERE_API_KEY}
+    description: "Cohere rerank-english-v3.0，英文为主，速度更快"
+
+  # ============= 本地自托管（推荐生产环境） =============
+  # 最常见的两种协议：
+  #   ① Hugging Face TEI（text-embeddings-inference）
+  #       docker run -p 8081:80 ghcr.io/huggingface/text-embeddings-inference:1.5 \
+  #           --model-id BAAI/bge-reranker-v2-m3
+  #       endpoint: POST /rerank
+  #   ② Infinity（michaelfeil/infinity）也支持 rerank，协议相同
+  # 不需要装 torch / FlagEmbedding，业务服务跟模型服务彻底解耦。
+  local_bge_m3:
+    provider: http
+    protocol: tei                              # 协议：tei | jina | cohere_compat | openai
+    model_name: BAAI/bge-reranker-v2-m3        # 仅用作日志/审计
+    top_k: 5
+    extra:
+      base_url: http://10.0.0.5:8081            # ← 改成你本地 rerank 服务的地址
+      api_key: ${LOCAL_RERANK_API_KEY}          # 本地服务通常可空
+      timeout: 30.0
+      truncate_input_tokens: 512
+    description: "本地 BGE-reranker-v2-m3（TEI /rerank 协议，多语言）"
+
+  local_bge_large:
+    provider: http
+    protocol: tei
+    model_name: BAAI/bge-reranker-large
+    top_k: 5
+    extra:
+      base_url: http://10.0.0.5:8082
+      api_key: ${LOCAL_RERANK_API_KEY}
+      timeout: 30.0
+    description: "本地 BGE-reranker-large（英文）"
+
+  local_cohere_compat:
+    provider: http
+    protocol: cohere_compat
+    model_name: rerank-multilingual-v3.0
+    top_k: 5
+    extra:
+      base_url: http://10.0.0.5:8083
+      api_key: ${LOCAL_RERANK_API_KEY}
+      timeout: 30.0
+    description: "私有部署的 Cohere 兼容服务"

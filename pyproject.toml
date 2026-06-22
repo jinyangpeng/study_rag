@@ -1,0 +1,106 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "study-rag"
+version = "0.1.0"
+description = "Enterprise knowledge base retrieval service based on LlamaIndex, exposed via MCP"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "study_rag" }]
+license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "pyyaml>=6.0.1",
+    "mcp[cli]>=1.0.0",
+    "httpx>=0.27.0",
+    "structlog>=24.1.0",
+    "python-multipart>=0.0.9",
+    "beautifulsoup4>=4.12.0",
+]
+
+[project.optional-dependencies]
+# 后续按需启用
+llamaindex = [
+    "llama-index-core>=0.10.0",
+]
+vector-milvus = [
+    "pymilvus>=2.4.0",
+]
+vector-qdrant = [
+    "qdrant-client>=1.7.0",
+]
+
+# Embedding 后端（按需安装）
+embedding-openai = [
+    "openai>=1.40.0",
+]
+embedding-bge = [
+    "FlagEmbedding>=1.2.0",
+    "torch>=2.0.0",
+]
+embedding-bge-st = [
+    "sentence-transformers>=2.6.0",
+]
+embedding-fastembed = [
+    "fastembed>=0.3.0",
+]
+
+reranker-bge = [
+    "FlagEmbedding>=1.2.0",
+]
+reranker-cohere = [
+    "cohere>=5.0.0",
+]
+
+# 文档读取器（按格式分组的可选依赖）
+reader-pdf = [
+    "pypdf>=4.0.0",
+]
+reader-docx = [
+    "docx2txt>=0.8",
+]
+reader-md = [
+    "markdown>=3.5",
+]
+
+# 一键安装推荐组合
+all = [
+    "study-rag[llamaindex,vector-milvus,embedding-openai,embedding-bge,reranker-bge,reader-pdf,reader-docx,reader-md]",
+]
+
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+]
+
+[project.scripts]
+study-rag = "study_rag.app:main"
+study-rag-mcp = "study_rag.mcp_standalone:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+study_rag = ["py.typed", "web/dist/**/*", "web/dist/index.html"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PT"]
+ignore = ["E501", "B008"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+# verify_*.py 是脚本式验证（顶层 main()），不是 pytest 测试函数
+python_files = ["test_*.py"]
