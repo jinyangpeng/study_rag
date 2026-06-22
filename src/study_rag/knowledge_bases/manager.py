@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..capabilities.embedding import Embedder, EmbeddingConfig, create_embedder
@@ -16,6 +17,7 @@ from ..capabilities.vector_store import (
 from ..observability.logging import get_logger
 from ..settings import AppPaths
 from .models import (
+    ChunkInfo,
     DocumentCreate,
     DocumentMeta,
     KnowledgeBaseSummary,
@@ -299,6 +301,60 @@ class KnowledgeBaseManager:
 
     def list_documents(self, kb_id: str) -> list[DocumentMeta]:
         return list(self._docs.get(kb_id, {}).values())
+
+    async def list_chunks(
+        self,
+        kb_id: str,
+        doc_id: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[ChunkInfo]:
+        """获取文档的所有 chunks（从向量库查）。
+
+        Args:
+            kb_id: 知识库 ID（不存在 → KeyError）
+            doc_id: 文档 ID
+            limit: 返回的 chunk 数上限
+            offset: 分页偏移
+
+        Returns:
+            按 chunk_index 升序排列的 ChunkInfo 列表
+        """
+        cfg = self._registry.get(kb_id)
+        if cfg is None:
+            raise KeyError(f"Unknown kb_id: {kb_id}")
+        # 拿足够多记录后按 chunk_index 排序，再分页
+        # 这样 pagination 对调用方来说是稳定的（按切块顺序）
+        records = await self._vector_store.query(
+            cfg.collection,
+            filter_expr={"doc_id": doc_id},
+            limit=limit + offset,
+            offset=0,
+        )
+        records.sort(key=lambda r: r.metadata.get("chunk_index", 0))
+        page = records[offset:offset + limit]
+        return [
+            ChunkInfo(
+                chunk_id=r.id,
+                chunk_index=r.metadata.get("chunk_index", 0),
+                text=r.text,
+                char_count=len(r.text),
+                metadata=r.metadata,
+            )
+            for r in page
+        ]
+
+    async def get_chunk_count(self, kb_id: str, doc_id: str) -> int:
+        """获取文档的 chunk 总数。"""
+        cfg = self._registry.get(kb_id)
+        if cfg is None:
+            raise KeyError(f"Unknown kb_id: {kb_id}")
+        records = await self._vector_store.query(
+            cfg.collection,
+            filter_expr={"doc_id": doc_id},
+            limit=10000,  # 业务上限，文档很少有 > 10k chunks
+        )
+        return len(records)
 
     # ---- 检索（被 MCP Tool 调用） ----
 

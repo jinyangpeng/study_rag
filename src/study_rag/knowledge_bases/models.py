@@ -138,6 +138,24 @@ class DocumentMeta(BaseModel):
     )
 
 
+class ChunkInfo(BaseModel):
+    """文档切块信息（从向量库查出来的 chunk 元信息）。
+
+    字段：
+      chunk_id:        Milvus 主键（string）
+      chunk_index:     块索引（0-based）
+      text:            块完整文本
+      char_count:      字符数（UI 友好）
+      metadata:        原始 metadata（title/source/parser/...）
+    """
+
+    chunk_id: str = Field(..., description="chunk 唯一标识（Milvus 主键）")
+    chunk_index: int = Field(..., description="块索引（0-based，按切块顺序）")
+    text: str = Field(..., description="chunk 完整文本")
+    char_count: int = Field(..., description="字符数（=len(text)）")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class DocumentCreate(BaseModel):
     """创建文档请求。"""
 
