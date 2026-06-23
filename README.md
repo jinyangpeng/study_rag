@@ -12,6 +12,9 @@
 - **文档管理增强**：支持文本输入 / 文件上传（txt / md / html / pdf / docx），
   多种切块策略（whole / sentence / token / semantic 通过命名 parser），
   分块预览（提交前看到每块内容/大小），策略通过 `configs/llamaindex.yaml` 配置
+- **分块查看**：管理 UI「文档」列表的「查看分块」按钮 → Drawer 显示该文档
+  所有 chunk 的 `#索引 / 字符数 / 完整文本 / 源 metadata`，分页 20/页
+  （对应 `GET /admin/kbs/{kb_id}/documents/{doc_id}/chunks` 端点）
 - **Parser Registry**：命名 parser 实体，类似 embedder / reranker 的注册表设计，
   提供 `get_parser(name)` / `list_parsers()` 接口
 - **新 API 端点**：`GET /admin/parsers` / `POST /documents/preview-chunk` /
