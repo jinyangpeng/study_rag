@@ -424,3 +424,36 @@ class MilvusVectorStore:
             len(records),
         )
         return records
+
+    async def count(self, collection: str) -> int:
+        """O(1) Milvus 实现：用 num_entities API，不拉数据。
+
+        对应 MilvusClient.get_collection_stats()。pymilvus 2.4+ / 3.x 都有。
+
+        错误降级：
+        - collection 不存在 → 0
+        - pymilvus 缺 / 抛错 → 0（不阻断上层）
+        """
+        def _op() -> int:
+            try:
+                client = self._connect()
+            except ImportError as e:  # noqa: PERF203
+                logger.warning("count() requires pymilvus: %s", e)
+                return 0
+            except Exception as e:  # noqa: BLE001
+                logger.warning("count() connect failed for %s: %s", collection, e)
+                return 0
+            try:
+                if not client.has_collection(collection):
+                    logger.warning(
+                        "count() on non-existent collection: %s", collection
+                    )
+                    return 0
+                stats = client.get_collection_stats(collection_name=collection)
+                # stats: {"row_count": N, ...}  (pymilvus 2.4+ / 3.x)
+                return int(stats.get("row_count", 0))
+            except Exception as e:  # noqa: BLE001
+                logger.warning("count() failed for %s: %s", collection, e)
+                return 0
+
+        return await asyncio.to_thread(_op)

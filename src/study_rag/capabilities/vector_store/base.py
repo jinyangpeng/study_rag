@@ -64,6 +64,7 @@ class VectorStore(Protocol):
         limit: int = 100,
         offset: int = 0,
     ) -> list[VectorRecord]: ...
+    async def count(self, collection: str) -> int: ...
 
 
 _VECTOR_STORE_REGISTRY: dict[str, type[VectorStore]] = {}

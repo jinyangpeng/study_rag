@@ -93,6 +93,14 @@ class InMemoryVectorStore:
         matched = [r for r in records if matches_filter(r.metadata, filter_expr)]
         return matched[offset:offset + limit]
 
+    async def count(self, collection: str) -> int:
+        """O(1) mock 实现：直接读 in-memory dict 的长度。
+
+        collection 不存在 → 返回 0（不抛错）。
+        """
+        records = self._collections.get(collection, [])
+        return len(records)
+
     @staticmethod
     def _cosine(a: list[float], b: list[float]) -> float:
         dot = sum(x * y for x, y in zip(a, b, strict=False))
