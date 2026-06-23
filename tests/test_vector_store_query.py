@@ -215,6 +215,58 @@ async def test_count_after_delete(mock_store):
             for i in range(5)
         ],
     )
-    await mock_store.delete("test", ["r0", "r1"])
+    await mock_store.delete("test", ids=["r0", "r1"])
     n = await mock_store.count("test")
     assert n == 3
+
+
+# ---- Phase 6.7: delete() 支持 filter_expr ----
+
+
+@pytest.mark.asyncio
+async def test_delete_by_ids(mock_store):
+    """原行为：按 ids 删（保留）。"""
+    await mock_store.create_collection("c", dimension=4)
+    await mock_store.insert(
+        "c",
+        [
+            VectorRecord(id="1", vector=[0.1] * 4, text="a", metadata={}),
+            VectorRecord(id="2", vector=[0.1] * 4, text="b", metadata={}),
+            VectorRecord(id="3", vector=[0.1] * 4, text="c", metadata={}),
+        ],
+    )
+    n = await mock_store.delete("c", ids=["1", "3"])
+    assert n == 2
+    assert await mock_store.count("c") == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_by_filter(mock_store):
+    """按 filter_expr 删：metadata 子字段过滤。"""
+    await mock_store.create_collection("c", dimension=4)
+    await mock_store.insert(
+        "c",
+        [
+            VectorRecord(id="1", vector=[0.1] * 4, text="a", metadata={"doc_id": "d1"}),
+            VectorRecord(id="2", vector=[0.1] * 4, text="b", metadata={"doc_id": "d1"}),
+            VectorRecord(id="3", vector=[0.1] * 4, text="c", metadata={"doc_id": "d2"}),
+        ],
+    )
+    n = await mock_store.delete("c", filter_expr={"doc_id": "d1"})
+    assert n == 2
+    assert await mock_store.count("c") == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_empty_args_returns_zero(mock_store):
+    """ids 和 filter_expr 都不传 → 返回 0，不抛错。"""
+    await mock_store.create_collection("c", dimension=4)
+    n = await mock_store.delete("c")
+    assert n == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_nonexistent_collection(mock_store):
+    """不存在的 collection → 返回 0，不抛错。"""
+    n = await mock_store.delete("nonexistent", filter_expr={"doc_id": "x"})
+    assert n == 0
