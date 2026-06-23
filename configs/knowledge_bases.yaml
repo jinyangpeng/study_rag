@@ -74,11 +74,3 @@ knowledge_bases:
   reranker: none
   enabled: true
   extra: {}
-- kb_id: rd_test
-  name: test
-  description: test
-  department: MY
-  collection: kb_rd_test
-  embedding: ollama_bge_large
-  enabled: true
-  extra: {}

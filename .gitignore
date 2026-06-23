@@ -36,3 +36,6 @@ Null.*
 # Env
 .env
 .env.local
+
+# Runtime state (regenerated on every operation)
+data/docs_index.json
