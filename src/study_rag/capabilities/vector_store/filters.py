@@ -39,6 +39,34 @@ _OPS_CMP = {"gt", "gte", "lt", "lte"}
 _OPS_STR = {"contains"}
 _OPS_BOOL = {"exists"}
 
+# Milvus collection schema 中存于 JSON `metadata` 字段里的子字段白名单。
+# 任何命中此集合的 filter 字段会被翻译为 metadata["<field>"] JSON path 语法。
+# 顶层（非 metadata）字段保持原样引用，保留向后兼容。
+_METADATA_FIELDS: frozenset[str] = frozenset({
+    "doc_id",
+    "chunk_index",
+    "title",
+    "source",
+    "parser",
+    "filename",
+    "uploaded",
+    "author",
+    "tags",
+    "url",
+    "year",
+})
+
+
+def _to_field_ref(field: str) -> str:
+    """把 field 翻译为 Milvus expr 字段引用。
+
+    - 在 ``_METADATA_FIELDS`` 白名单中的字段生成 JSON path: ``metadata["<field>"]``
+    - 其它字段保持顶层引用（向后兼容：例如 ``department``）
+    """
+    if field in _METADATA_FIELDS:
+        return f'metadata["{field}"]'
+    return field
+
 
 def parse_key(raw_key: str) -> tuple[str, str]:
     """从 "key__op" 拆出 (field, op)；无后缀时 op="eq"。
@@ -86,6 +114,8 @@ def to_milvus_expr(filter_expr: dict | None) -> str | None:
 
     - 空/None -> None
     - 多个条件用 and 连接
+    - 在 ``_METADATA_FIELDS`` 白名单中的字段自动翻译为 ``metadata["<field>"]``
+      JSON path 语法，匹配 Milvus collection schema 中 JSON metadata 字段。
     - 全部 op 在 parse_key 中已校验
     """
     if not filter_expr:
@@ -94,41 +124,42 @@ def to_milvus_expr(filter_expr: dict | None) -> str | None:
     parts: list[str] = []
     for raw_key, value in filter_expr.items():
         field, op = parse_key(raw_key)
+        ref = _to_field_ref(field)
 
         if op in _OPS_EQ:
-            parts.append(f"{field} == {format_value(value)}")
+            parts.append(f"{ref} == {format_value(value)}")
         elif op in _OPS_NE:
-            parts.append(f"{field} != {format_value(value)}")
+            parts.append(f"{ref} != {format_value(value)}")
         elif op == "in":
             if not isinstance(value, (list, tuple)):
                 raise ValueError(
                     f"__in operator requires list value, got {type(value).__name__}"
                 )
             formatted = ", ".join(format_value(v) for v in value)
-            parts.append(f"{field} in [{formatted}]")
+            parts.append(f"{ref} in [{formatted}]")
         elif op == "nin":
             if not isinstance(value, (list, tuple)):
                 raise ValueError(
                     f"__nin operator requires list value, got {type(value).__name__}"
                 )
             formatted = ", ".join(format_value(v) for v in value)
-            parts.append(f"not ({field} in [{formatted}])")
+            parts.append(f"not ({ref} in [{formatted}])")
         elif op in _OPS_CMP:
             sym = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[op]
-            parts.append(f"{field} {sym} {format_value(value)}")
+            parts.append(f"{ref} {sym} {format_value(value)}")
         elif op == "contains":
             if not isinstance(value, str):
                 raise ValueError(
                     f"__contains operator requires str value, got {type(value).__name__}"
                 )
-            parts.append(f'{field} like "%{value}%"')
+            parts.append(f'{ref} like "%{value}%"')
         elif op == "exists":
             if not isinstance(value, bool):
                 raise ValueError(
                     f"__exists operator requires bool value, got {type(value).__name__}"
                 )
-            # Milvus 没有直接 exists；用 isnull / not isnull 模拟
-            parts.append(f"{field} is null" if not value else f"{field} is not null")
+            # Milvus JSON 字段的 exists 等价语义：``ref is not null`` (或 ``is null``)
+            parts.append(f"{ref} is null" if not value else f"{ref} is not null")
         else:  # pragma: no cover - parse_key 已校验
             raise ValueError(f"Unhandled operator: {op}")
 
