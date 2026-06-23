@@ -8,6 +8,7 @@ import {
   SettingOutlined,
   ApiOutlined,
   ReloadOutlined,
+  SyncOutlined,
 } from "@ant-design/icons";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useApi } from "../api/client";
@@ -32,6 +33,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     if (location.pathname.startsWith("/kbs")) return "/kbs";
     if (location.pathname.startsWith("/search")) return "/search";
     if (location.pathname.startsWith("/metrics")) return "/metrics";
+    if (location.pathname.startsWith("/jobs")) return "/jobs";
     if (location.pathname.startsWith("/settings")) return "/settings";
     return "/dashboard";
   })();
@@ -80,6 +82,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
             { key: "/dashboard", icon: <DashboardOutlined />, label: "系统状态" },
             { key: "/kbs", icon: <DatabaseOutlined />, label: "知识库" },
             { key: "/search", icon: <SearchOutlined />, label: "检索测试" },
+            { key: "/jobs", icon: <SyncOutlined />, label: "异步任务" },
             { key: "/metrics", icon: <LineChartOutlined />, label: "Metrics" },
             { key: "/settings", icon: <SettingOutlined />, label: "设置" },
           ]}
@@ -103,6 +106,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 if (selectedKey === "/kbs") return "知识库管理";
                 if (selectedKey === "/search") return "检索测试";
                 if (selectedKey === "/metrics") return "Prometheus Metrics";
+                if (selectedKey === "/jobs") return "异步任务";
                 if (selectedKey === "/settings") return "设置";
                 return "study_rag Admin";
               })()}

@@ -9,6 +9,7 @@ const Documents = lazy(() => import("./pages/Documents"));
 const SearchTest = lazy(() => import("./pages/SearchTest"));
 const Metrics = lazy(() => import("./pages/Metrics"));
 const Settings = lazy(() => import("./pages/Settings"));
+const JobsPage = lazy(() => import("./pages/JobsPage"));
 
 function PageFallback() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="/kbs/:kbId/documents" element={<Documents />} />
           <Route path="/search" element={<SearchTest />} />
           <Route path="/metrics" element={<Metrics />} />
+          <Route path="/jobs" element={<JobsPage />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
