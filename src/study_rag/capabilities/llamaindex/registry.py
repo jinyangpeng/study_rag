@@ -37,6 +37,8 @@ class ParserSpec:
             "chunk_size": cfg.chunk_size,
             "chunk_overlap": cfg.chunk_overlap,
             "paragraph_separator": cfg.paragraph_separator,
+            "buffer_size": cfg.buffer_size,
+            "breakpoint_percentile_threshold": cfg.breakpoint_percentile_threshold,
         }
 
 

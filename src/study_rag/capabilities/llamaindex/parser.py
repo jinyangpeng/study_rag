@@ -25,7 +25,11 @@ class NodeParserConfig:
       chunk_size:        目标 chunk 大小（字符/token）
       chunk_overlap:     相邻 chunk 重叠
       separator:         句子切分分隔符（默认 "。!?；!?\n"）
-      paragraph_separator: 段落切分分隔符（默认 "\n\n"）
+      paragraph_separator: 段落切分分隔符（默认 "\n\n")
+      buffer_size:       SemanticSplitterNodeParser 的滑动窗口大小（句数）
+      breakpoint_percentile_threshold:
+                          SemanticSplitterNodeParser 的切块百分位阈值
+                          （越小越敏感，切块越多）
     """
 
     def __init__(
@@ -35,6 +39,8 @@ class NodeParserConfig:
         chunk_overlap: int = 50,
         separator: str = "。!?；!?\n",
         paragraph_separator: str = "\n\n",
+        buffer_size: int | None = None,
+        breakpoint_percentile_threshold: int | None = None,
     ):
         if strategy not in ("whole", "sentence", "semantic", "token"):
             raise ValueError(
@@ -46,6 +52,8 @@ class NodeParserConfig:
         self.chunk_overlap = chunk_overlap
         self.separator = separator
         self.paragraph_separator = paragraph_separator
+        self.buffer_size = buffer_size
+        self.breakpoint_percentile_threshold = breakpoint_percentile_threshold
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> NodeParserConfig:
@@ -55,6 +63,8 @@ class NodeParserConfig:
             chunk_overlap=raw.get("chunk_overlap", 50),
             separator=raw.get("separator", "。!?；!?\n"),
             paragraph_separator=raw.get("paragraph_separator", "\n\n"),
+            buffer_size=raw.get("buffer_size"),
+            breakpoint_percentile_threshold=raw.get("breakpoint_percentile_threshold"),
         )
 
 
@@ -122,8 +132,12 @@ def _make_semantic_splitter(cfg: NodeParserConfig, embed_model):
         ) from e
 
     return SemanticSplitterNodeParser(
-        buffer_size=1,  # 句子粒度
-        breakpoint_percentile_threshold=95,
+        buffer_size=cfg.buffer_size if cfg.buffer_size is not None else 1,
+        breakpoint_percentile_threshold=(
+            cfg.breakpoint_percentile_threshold
+            if cfg.breakpoint_percentile_threshold is not None
+            else 95
+        ),
         embed_model=embed_model,
     )
 

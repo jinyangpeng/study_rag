@@ -42,10 +42,25 @@ parsers:
     chunk_size: 512
     chunk_overlap: 50
 
-  # 语义级（质量优先，速度慢）
+  # 语义级（质量优先，速度慢）— 三种敏感度可选
+  # 切块数量：conservative < semantic < aggressive
   semantic:
     strategy: semantic
     chunk_size: 512
+    buffer_size: 1
+    breakpoint_percentile_threshold: 95  # LI 默认，极保守
+
+  semantic_aggressive:
+    strategy: semantic
+    chunk_size: 512
+    buffer_size: 5
+    breakpoint_percentile_threshold: 60  # 20% 语义跳变就切
+
+  semantic_conservative:
+    strategy: semantic
+    chunk_size: 512
+    buffer_size: 1
+    breakpoint_percentile_threshold: 99  # 几乎不切
 
 # 全局 LlamaIndex 设置
 settings:
