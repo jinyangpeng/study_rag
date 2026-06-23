@@ -1,0 +1,52 @@
+﻿{"event": "OpenAIEmbedder initialized: model=quentinz/bge-large-zh-v1.5:latest, dim=1024, base_url=http://localhost:11434/v1", "level": "info", "logger": "study_rag.capabilities.embedding.impls_openai", "timestamp": "2026-06-23T05:26:03.194039Z"}
+{"event": "MilvusVectorStore configured: uri=http://localhost:19530, db=default, metric=COSINE, index=AUTOINDEX", "level": "info", "logger": "study_rag.capabilities.vector_store.impls_milvus", "timestamp": "2026-06-23T05:26:03.198986Z"}
+{"count": 3, "event": "docs_index_loaded", "level": "info", "logger": "study_rag.knowledge_bases.manager", "timestamp": "2026-06-23T05:26:03.199511Z"}
+{"event": "KnowledgeBaseManager \u521d\u59cb\u5316\u5b8c\u6210: 1 embedders, 1 rerankers, 1 vector_store", "level": "info", "logger": "study_rag.knowledge_bases.manager", "timestamp": "2026-06-23T05:26:03.199637Z"}
+{"dist": "C:\\Workspace\\Development\\Study\\study_rag\\src\\study_rag\\web\\dist", "event": "admin_ui_mounted", "level": "info", "logger": "study_rag.web", "timestamp": "2026-06-23T05:26:03.264191Z"}
+{"dist": "C:\\Workspace\\Development\\Study\\study_rag\\src\\study_rag\\web\\dist", "event": "admin_ui_mounted", "level": "info", "logger": "study_rag.web", "timestamp": "2026-06-23T05:26:03.266971Z"}
+{"event": "Connecting to Milvus: uri=http://localhost:19530 db=default", "method": "GET", "path": "/admin/kbs/rd_test", "level": "info", "logger": "study_rag.capabilities.vector_store.impls_milvus", "timestamp": "2026-06-23T05:26:04.067931Z", "request_id": "3f3882fb885040b78053ef9fcc81d408"}
+{"event": "Milvus connected OK", "method": "GET", "path": "/admin/kbs/rd_test", "level": "info", "logger": "study_rag.capabilities.vector_store.impls_milvus", "timestamp": "2026-06-23T05:26:04.357322Z", "request_id": "3f3882fb885040b78053ef9fcc81d408"}
+{"status": 200, "duration_ms": 1091.16, "event": "request_completed", "method": "GET", "path": "/admin/kbs/rd_test", "level": "info", "logger": "study_rag.observability.middleware", "timestamp": "2026-06-23T05:26:04.364529Z", "request_id": "3f3882fb885040b78053ef9fcc81d408"}
+{"event": "HTTP Request: GET http://t/admin/kbs/rd_test \"HTTP/1.1 200 OK\"", "level": "info", "logger": "httpx", "timestamp": "2026-06-23T05:26:04.366058Z", "request_id": "3f3882fb885040b78053ef9fcc81d408"}
+当前: docs=0 chunks=7
+.\venv\Scripts\python.exe : Traceback (most recent call last):
+所在位置 行:1 字符: 50
++ ... tudy\study_rag; .\venv\Scripts\python.exe investigate.py 2>&1 | Out-F ...
++                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last) 
+   ::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "C:\Workspace\Development\Study\study_rag\venv\Lib\site-packages\starlet
+te\datastructures.py", line 683, in __getattr__
+    return self._state[key]
+           ~~~~~~~~~~~^^^^^
+KeyError: 'manager'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Workspace\Development\Study\study_rag\investigate.py", line 73, in <
+module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\JYPen\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\runn
+ers.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Users\JYPen\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\runn
+ers.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\JYPen\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\base
+_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Workspace\Development\Study\study_rag\investigate.py", line 19, in m
+ain
+    vs = app.state.manager._vector_store
+         ^^^^^^^^^^^^^^^^^
+  File "C:\Workspace\Development\Study\study_rag\venv\Lib\site-packages\starlet
+te\datastructures.py", line 686, in __getattr__
+    raise AttributeError(message.format(self.__class__.__name__, key))
+AttributeError: 'State' object has no attribute 'manager'
