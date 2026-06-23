@@ -54,6 +54,10 @@ _METADATA_FIELDS: frozenset[str] = frozenset({
     "tags",
     "url",
     "year",
+    # Phase 6.7: LI adapter 写入 chunks 时把 ref_doc_id 存到 metadata["ref_doc_id"]。
+    # 删除时按 ref_doc_id 过滤；不加入此白名单会生成顶层 `ref_doc_id == X`，
+    # Milvus 顶层无此字段，会报 "field not exist"。
+    "ref_doc_id",
 })
 
 

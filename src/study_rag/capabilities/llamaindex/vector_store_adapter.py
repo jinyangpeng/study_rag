@@ -180,7 +180,13 @@ class LIVectorStoreAdapter(_get_li_types()["BasePydanticVectorStore"]):  # type:
         return asyncio.run(self.aadd(nodes, **kwargs))
 
     async def adelete(self, ref_doc_id: str, **kwargs: Any) -> None:
-        await self._store.delete(self._collection, [ref_doc_id])
+        # 用 filter_expr 删，因为 Milvus 主键是 Int64，按 ref_doc_id 字符串
+        # 走主键会 cast 失败（见 Phase 6.7 修复）。
+        # LI 写入时把 ref_doc_id 存到 metadata["ref_doc_id"]（见 aadd）。
+        await self._store.delete(
+            self._collection,
+            filter_expr={"ref_doc_id": ref_doc_id},
+        )
 
     def delete(self, ref_doc_id: str, **kwargs: Any) -> None:
         asyncio.run(self.adelete(ref_doc_id, **kwargs))

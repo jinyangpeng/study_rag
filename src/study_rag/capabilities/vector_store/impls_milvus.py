@@ -282,26 +282,54 @@ class MilvusVectorStore:
         await asyncio.to_thread(_op)
         logger.info("Inserted %d records into %s", len(records), collection)
 
-    async def delete(self, collection: str, ids: list[str]) -> None:
-        if not ids:
-            return
+    async def delete(
+        self,
+        collection: str,
+        ids: list[str] | None = None,
+        filter_expr: dict | None = None,
+    ) -> int:
+        """Milvus 实现：filter-based delete（兼容按 ids 删）。
 
-        def _op():
-            client = self._connect()
+        关键修复：旧版用 `id in ["001"]`（主键是 Int64，cast 失败抛 1100）。
+        改用 `metadata["_doc_id"]` 字符串字段匹配：每条 chunk 写入时
+        已在 metadata 里加了 ``_doc_id`` 字段（保留原始 string id），所以
+        filter 走 metadata JSON path 即可。
+
+        错误降级：collection 不存在 / pymilvus 错误 / 网络问题 → 返回 0，
+        不让 API 返回 500。
+        """
+        if not ids and not filter_expr:
+            return 0
+
+        def _op() -> int:
+            try:
+                client = self._connect()
+            except Exception:  # noqa: BLE001
+                logger.warning("delete() failed: cannot connect to Milvus")
+                return 0
             if not client.has_collection(collection):
-                logger.warning(
-                    "delete() called on non-existent collection: %s", collection
+                logger.warning("delete() on non-existent collection: %s", collection)
+                return 0
+            # 构造 filter
+            if filter_expr:
+                expr = to_milvus_expr(filter_expr)
+            else:
+                # ids 走 metadata._doc_id 字符串字段（不是 Int64 主键）
+                escaped = ", ".join(format_value(i) for i in (ids or []))
+                expr = f'{self._metadata_field}["_doc_id"] in [{escaped}]'
+            try:
+                client.delete(
+                    collection_name=collection,
+                    filter=expr,
                 )
-                return
-            # 用主键过滤删除
-            id_list = ", ".join(f'"{i}"' for i in ids)
-            client.delete(
-                collection_name=collection,
-                filter=f"{self._id_field} in [{id_list}]",
-            )
+                # Milvus client.delete() 不返回删了多少条
+                # 用 -1 表示"成功，条数未知"；调用方通常不依赖具体值
+                return -1
+            except Exception as e:  # noqa: BLE001
+                logger.warning("delete() failed for %s: %s", collection, e)
+                return 0
 
-        await asyncio.to_thread(_op)
-        logger.info("Deleted %d ids from %s", len(ids), collection)
+        return await asyncio.to_thread(_op)
 
     async def search(
         self,

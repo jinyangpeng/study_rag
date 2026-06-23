@@ -49,7 +49,20 @@ class VectorStore(Protocol):
     async def has_collection(self, name: str) -> bool: ...
 
     async def insert(self, collection: str, records: list[VectorRecord]) -> None: ...
-    async def delete(self, collection: str, ids: list[str]) -> None: ...
+    async def delete(
+        self,
+        collection: str,
+        ids: list[str] | None = None,
+        filter_expr: dict | None = None,
+    ) -> int:
+        """删除 collection 中匹配的记录。
+
+        - ids: 主键列表（与 filter_expr 互斥；同时传行为由实现决定）
+        - filter_expr: metadata 过滤字典
+        - 返回删除的记录数
+        - collection 不存在 / 空 args → 返回 0，不抛错
+        """
+        ...
     async def search(
         self,
         collection: str,

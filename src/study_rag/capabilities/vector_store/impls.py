@@ -36,12 +36,26 @@ class InMemoryVectorStore:
         async with self._lock:
             self._collections[collection].extend(records)
 
-    async def delete(self, collection: str, ids: list[str]) -> None:
+    async def delete(
+        self,
+        collection: str,
+        ids: list[str] | None = None,
+        filter_expr: dict | None = None,
+    ) -> int:
         async with self._lock:
-            id_set = set(ids)
-            self._collections[collection] = [
-                r for r in self._collections[collection] if r.id not in id_set
-            ]
+            records = self._collections.get(collection, [])
+            original_len = len(records)
+            if ids:
+                id_set = set(ids)
+                self._collections[collection] = [
+                    r for r in records if r.id not in id_set
+                ]
+            elif filter_expr:
+                self._collections[collection] = [
+                    r for r in records if not matches_filter(r.metadata, filter_expr)
+                ]
+            # 都不传 → no-op，返回 0
+            return original_len - len(self._collections.get(collection, []))
 
     async def search(
         self,

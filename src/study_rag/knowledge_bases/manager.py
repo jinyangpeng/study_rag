@@ -298,10 +298,36 @@ class KnowledgeBaseManager:
         return self._docs.get(kb_id, {}).get(doc_id)
 
     async def delete_document(self, kb_id: str, doc_id: str) -> bool:
+        """删除文档。
+
+        从 vector store 删除该 doc_id 对应的所有 chunks（用 filter_expr），
+        同时从内存 _docs 移除 metadata。
+        vector store 错误不影响内存删除（最坏情况：向量库有残留，UI 看到 0 文档
+        但向量库还有 chunk；下次重建 collection 时会清掉）。
+        """
         cfg = self._registry.get(kb_id)
         if cfg is None:
             return False
-        await self._vector_store.delete(cfg.collection, [doc_id])
+        # 1. vector store 删 chunks（用 filter，失败不抛）
+        try:
+            n = await self._vector_store.delete(
+                cfg.collection,
+                filter_expr={"doc_id": doc_id},
+            )
+            logger.info(
+                "Deleted chunks from %s for doc_id=%s: %s",
+                cfg.collection,
+                doc_id,
+                n,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "vector_store_delete_failed",
+                kb_id=kb_id,
+                doc_id=doc_id,
+                error=str(e),
+            )
+        # 2. 内存 _docs 删 meta（必须成功）
         async with self._lock:
             existed = self._docs.get(kb_id, {}).pop(doc_id, None) is not None
         if existed:
