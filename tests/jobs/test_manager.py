@@ -2,17 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 
 import pytest
 
-from study_rag.jobs.manager import (
-    InMemoryJobStore,
-    JobManager,
-    JobStore,
-)
+from study_rag.jobs.manager import InMemoryJobStore, JobManager
 from study_rag.jobs.models import JobInfo, JobStage, JobStatus
-
 
 # ---- 基础行为 ----
 
@@ -225,7 +219,7 @@ async def test_list_sorted_by_created_at_desc():
     await asyncio.sleep(0.05)
     jobs = await mgr.list()
     # 最新（最后 submit）的应在最前
-    for a, b in zip(jobs, jobs[1:]):
+    for a, b in zip(jobs, jobs[1:], strict=False):
         assert a.created_at >= b.created_at
 
 
@@ -255,11 +249,16 @@ async def test_progress_callback_updates_info():
     info = await mgr.get(jid)
     assert info is not None
     assert info.progress == 1.0
-    assert info.stage == JobStage.EMBEDDING  # runner 结束前最后一次的 stage
+    # runner 结束后 manager 会把 stage 推到 DONE
+    assert info.stage == JobStage.DONE
     # 验证 capture 序列
     assert captured[0][1] == 0.0
     assert captured[1][1] == 0.5
     assert captured[2][1] == 1.0
+    # 中间的 capture 里 stage 应该是 EMBEDDING（runner 内的状态）
+    assert captured[0][2] == 0
+    assert captured[1][2] == 5
+    assert captured[2][2] == 10
 
 
 @pytest.mark.asyncio

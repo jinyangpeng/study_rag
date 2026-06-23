@@ -37,6 +37,11 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from ..jobs import (
+    JobManager,
+    JobStatus,
+    run_chunking_pipeline,
+)
 from ..knowledge_bases.manager import (
     ComponentUnavailableError,
     DocumentCreate,
@@ -634,9 +639,13 @@ async def preview_chunk(
 
 @router.post(
     "/kbs/{kb_id}/documents/upload",
-    summary="上传文件入库（multipart）",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="上传文件入库（multipart，异步）",
     description=(
         "支持格式：`txt` / `md` / `html` / `pdf` / `docx`（取决于 pyproject optional deps）。\n\n"
+        "**异步执行**：上传是耗时操作（切块 + embedding + 写库），本端点会立即返回"
+        '``{"job_id": "...", "status": "pending"}``，实际处理在后台 asyncio.Task 里跑。\n\n'
+        "前端通过 ``GET /admin/jobs/{job_id}`` 轮询状态（推荐间隔 1s）。\n\n"
         "**Form 字段**：\n"
         "- `file`: 文件（必填）\n"
         "- `doc_id`: 文档 ID（必填，KB 内唯一）\n"
@@ -650,18 +659,15 @@ async def preview_chunk(
         "- 409：doc_id 已存在且未传 `overwrite=true`"
     ),
     responses={
-        200: {
-            "description": "成功",
+        202: {
+            "description": "已接收，后台处理中",
             "content": {
                 "application/json": {
                     "example": {
+                        "job_id": "abc123def456",
+                        "status": "pending",
                         "kb_id": "rd_frontend",
                         "doc_id": "react_perf_001",
-                        "title": "React 性能优化",
-                        "chunks": 6,
-                        "format": "md",
-                        "size_bytes": 12345,
-                        "parser": "sentence_512",
                     }
                 }
             },
@@ -677,14 +683,16 @@ async def upload_document(
     _: Annotated[str, Depends(admin_auth_dep)],
     __: Annotated[str, Depends(admin_ratelimit_dep)],
 ) -> dict[str, Any]:
-    """上传文件入库。"""
+    """上传文件入库（异步）。
+
+    立即返回 job_id；实际切块/embedding/写库在后台跑。
+    """
     from ..capabilities.llamaindex import UnsupportedFormatError, read_document
 
     form = await request.form()
     file = form.get("file")
     if file is None or not hasattr(file, "filename") or not file.filename:
         raise HTTPException(status_code=400, detail="file is required")
-    # 此处 file 是 UploadFile | str；前面 hasattr 校验过 filename，所以是 UploadFile
     from starlette.datastructures import UploadFile
 
     if not isinstance(file, UploadFile):
@@ -701,7 +709,7 @@ async def upload_document(
     if not title:
         raise HTTPException(status_code=400, detail="title is required")
 
-    # 读文件
+    # 读文件（同步发生在请求上下文；后续切块/embedding 在后台）
     data = await file.read()
     try:
         text, reader_meta = read_document(
@@ -712,7 +720,7 @@ async def upload_document(
     except UnsupportedFormatError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    # 校验 parser 存在（避免 manager 内部抛 KeyError 走 500）
+    # 校验 parser 存在（避免后台跑一半抛 KeyError）
     from ..capabilities.llamaindex import get_parser_registry
 
     try:
@@ -734,25 +742,48 @@ async def upload_document(
             detail=f"Document already exists: {kb_id}/{doc_id}",
         )
 
-    try:
-        chunks = await manager.add_document_from_upload(
-            kb_id=kb_id,
+    # 拿 job manager（app.state.jobs 在 create_app 里 wire）
+    jobs: JobManager = request.app.state.jobs  # type: ignore[attr-defined]
+
+    # 准备 embedder_registry 和 parser_registry 引用（供 pipeline 闭包用）
+    from ..capabilities.llamaindex import get_parser_registry as _gpr
+
+    embedder_registry = manager._embedders  # type: ignore[attr-defined]
+    parser_registry = _gpr()
+
+    # 提交后台任务
+    async def _runner(
+        job_id: str,
+        on_progress: Any,
+        is_cancelled: Any,
+    ) -> None:
+        await run_chunking_pipeline(
+            job_id=job_id,
+            on_progress=on_progress,
+            is_cancelled=is_cancelled,
+            file_content=text,
+            filename=file.filename or "upload.bin",
             doc_id=doc_id,
             title=title,
-            content=text,
+            parser_name=parser_name,
+            kb_id=kb_id,
             source=source,
             metadata={**reader_meta, "uploaded": True},
-            parser_name=parser_name,
+            embedder_registry=embedder_registry,
+            parser_registry=parser_registry,
+            kb_manager=manager,
         )
-    except KeyError as e:
-        # parser 名字非法（理论上前面已经校验过；这里兜底）
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except ComponentUnavailableError as e:
-        log.warning("admin_upload_component_unavailable", kb_id=kb_id, error=str(e))
-        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    jid = await jobs.submit(
+        "upload_doc",
+        _runner,
+        kb_id=kb_id,
+        doc_id=doc_id,
+        filename=file.filename,
+    )
 
     get_metrics().inc(
-        AdminMetrics.DOCUMENTS, {"op": "upload", "status": "ok"}
+        AdminMetrics.DOCUMENTS, {"op": "upload", "status": "queued"}
     )
     get_metrics().inc(
         AdminMetrics.REQUESTS,
@@ -760,14 +791,14 @@ async def upload_document(
             "endpoint": "upload",
             "kb_id": kb_id,
             "parser": parser_name,
-            "status": "ok",
+            "status": "queued",
         },
     )
     return {
+        "job_id": jid,
+        "status": JobStatus.PENDING.value,
         "kb_id": kb_id,
         "doc_id": doc_id,
-        "title": title,
-        "chunks": chunks,
         "format": reader_meta["format"],
         "size_bytes": reader_meta["size_bytes"],
         "parser": parser_name,

@@ -10,7 +10,6 @@ from study_rag.jobs.manager import JobManager
 from study_rag.jobs.models import JobStage, JobStatus
 from study_rag.jobs.pipeline import run_chunking_pipeline
 
-
 # ---- Fakes ----
 
 

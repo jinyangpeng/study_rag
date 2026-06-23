@@ -125,10 +125,16 @@ def create_app() -> FastAPI:
 
     # 5. 注册 REST 路由
     from .api import admin, health
+    from .jobs import JobManager
+    from .jobs.api import router as jobs_router
     from .web import mount_admin_ui
+
+    # 进程级 JobManager（单例）
+    app.state.jobs = JobManager()
 
     app.include_router(health.router)
     app.include_router(admin.router)
+    app.include_router(jobs_router)
 
     # 6. 挂载管理控制台 SPA
     mount_admin_ui(app)

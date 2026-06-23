@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import io
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,21 @@ def _has_llama_index() -> bool:
 needs_li = pytest.mark.skipif(
     not _has_llama_index(), reason="llama-index-core 未装"
 )
+
+
+async def _wait_job_done(
+    client: AsyncClient, job_id: str, timeout_s: float = 10.0
+) -> dict:
+    """轮询 /admin/jobs/{id} 直到 done / error / cancelled。"""
+    deadline = asyncio.get_event_loop().time() + timeout_s
+    while asyncio.get_event_loop().time() < deadline:
+        r = await client.get(f"/admin/jobs/{job_id}")
+        if r.status_code == 200:
+            info = r.json()
+            if info["status"] in ("done", "error", "cancelled"):
+                return info
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"job {job_id} did not finish in {timeout_s}s")
 
 
 @pytest.fixture
@@ -208,13 +224,23 @@ async def test_upload_txt_file(app_with_kb: AsyncClient) -> None:
     r = await app_with_kb.post(
         "/admin/kbs/kb_up_admin/documents/upload", files=files, data=data
     )
-    assert r.status_code == 200, r.text
+    # Phase 7: 异步上传 → 202 Accepted + job_id
+    assert r.status_code == 202, r.text
     body = r.json()
     assert body["doc_id"] == "upload-1"
-    assert body["chunks"] >= 1
     assert body["format"] == "txt"
     assert body["size_bytes"] == len(b"Hello world.")
     assert body["parser"] == "sentence_512"
+    assert "job_id" in body
+    # 等任务完成
+    info = await _wait_job_done(app_with_kb, body["job_id"])
+    assert info["status"] == "done", info
+    # 验证 chunk 已写入
+    r2 = await app_with_kb.get(
+        "/admin/kbs/kb_up_admin/documents/upload-1/chunks"
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["total"] >= 1
 
 
 @needs_li
@@ -239,7 +265,9 @@ async def test_upload_duplicate_doc_409(app_with_kb: AsyncClient) -> None:
     r1 = await app_with_kb.post(
         "/admin/kbs/kb_up_admin/documents/upload", files=files, data=data
     )
-    assert r1.status_code == 200, r1.text
+    assert r1.status_code == 202, r1.text
+    # 第一次 job 完成
+    await _wait_job_done(app_with_kb, r1.json()["job_id"])
 
     # 第二次同 doc_id，无 overwrite → 409
     files2 = {"file": ("b.txt", io.BytesIO(b"def"), "text/plain")}
@@ -248,12 +276,13 @@ async def test_upload_duplicate_doc_409(app_with_kb: AsyncClient) -> None:
     )
     assert r2.status_code == 409
 
-    # overwrite=true → 200
+    # overwrite=true → 202
     data3 = {**data, "overwrite": "true"}
     r3 = await app_with_kb.post(
         "/admin/kbs/kb_up_admin/documents/upload", files=files2, data=data3
     )
-    assert r3.status_code == 200, r3.text
+    assert r3.status_code == 202, r3.text
+    await _wait_job_done(app_with_kb, r3.json()["job_id"])
 
 
 @needs_li
@@ -338,11 +367,20 @@ async def test_upload_with_semantic_parser(app_with_kb: AsyncClient) -> None:
     r = await app_with_kb.post(
         "/admin/kbs/kb_up_admin/documents/upload", files=files, data=data
     )
-    assert r.status_code == 200, r.text
+    # Phase 7: 异步 → 202
+    assert r.status_code == 202, r.text
     body = r.json()
-    assert body["chunks"] >= 1
     assert body["parser"] == "semantic"
     assert body["doc_id"] == "sem-1"
+    # 等 job 完成
+    info = await _wait_job_done(app_with_kb, body["job_id"])
+    assert info["status"] == "done", info
+    # 至少 1 块
+    r2 = await app_with_kb.get(
+        "/admin/kbs/kb_up_admin/documents/sem-1/chunks"
+    )
+    assert r2.status_code == 200
+    assert r2.json()["total"] >= 1
 
 
 @needs_li
@@ -385,7 +423,9 @@ async def test_list_document_chunks(app_with_kb: AsyncClient) -> None:
     r = await app_with_kb.post(
         "/admin/kbs/kb_up_admin/documents/upload", files=files, data=data
     )
-    assert r.status_code == 200, r.text
+    # Phase 7: 异步 → 202
+    assert r.status_code == 202, r.text
+    await _wait_job_done(app_with_kb, r.json()["job_id"])
 
     # 列出 chunks
     r = await app_with_kb.get(
@@ -420,7 +460,9 @@ async def test_list_chunks_pagination(app_with_kb: AsyncClient) -> None:
     r = await app_with_kb.post(
         "/admin/kbs/kb_up_admin/documents/upload", files=files, data=data
     )
-    assert r.status_code == 200, r.text
+    # Phase 7: 异步 → 202
+    assert r.status_code == 202, r.text
+    await _wait_job_done(app_with_kb, r.json()["job_id"])
 
     # 取前 2 个
     r1 = await app_with_kb.get(
