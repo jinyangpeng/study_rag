@@ -193,8 +193,11 @@ class KnowledgeBaseManager:
             failed=failed,
         )
 
-    def list_summaries(self) -> list[KnowledgeBaseSummary]:
-        """列出所有 KB 的摘要。"""
+    async def list_summaries(self) -> list[KnowledgeBaseSummary]:
+        """列出所有 KB 的摘要。
+
+        chunk_count 通过 vector store 的 O(1) count() 拿，不拉数据。
+        """
         vs_provider = (
             self._vector_store.__class__.__name__
             if hasattr(self._vector_store, "__class__")
@@ -213,6 +216,7 @@ class KnowledgeBaseManager:
                 department=cfg.department,
                 enabled=cfg.enabled,
                 document_count=len(self._docs.get(cfg.kb_id, {})),
+                chunk_count=await self.get_total_chunk_count(cfg.kb_id),
                 embedder=cfg.embedding,
                 reranker=cfg.reranker,
                 vector_store=vs_provider,
@@ -221,7 +225,11 @@ class KnowledgeBaseManager:
             for cfg in self._registry.all_cfgs()
         ]
 
-    def get_summary(self, kb_id: str) -> KnowledgeBaseSummary | None:
+    async def get_summary(self, kb_id: str) -> KnowledgeBaseSummary | None:
+        """获取单个 KB 的摘要（含 chunk_count）。
+
+        chunk_count 通过 vector store 的 O(1) count() 拿。
+        """
         cfg = self._registry.get(kb_id)
         if cfg is None:
             return None
@@ -241,6 +249,7 @@ class KnowledgeBaseManager:
             department=cfg.department,
             enabled=cfg.enabled,
             document_count=len(self._docs.get(kb_id, {})),
+            chunk_count=await self.get_total_chunk_count(kb_id),
             embedder=cfg.embedding,
             reranker=cfg.reranker,
             vector_store=vs_provider,
@@ -355,6 +364,21 @@ class KnowledgeBaseManager:
             limit=10000,  # 业务上限，文档很少有 > 10k chunks
         )
         return len(records)
+
+    async def get_total_chunk_count(self, kb_id: str) -> int:
+        """获取 KB 整个 collection 的总 chunk 数。
+
+        用 O(1) 的 count() API，不拉数据。
+        collection 不存在 / count 失败 → 返回 0（不抛错）。
+        """
+        cfg = self._registry.get(kb_id)
+        if cfg is None:
+            return 0
+        try:
+            return await self._vector_store.count(cfg.collection)
+        except Exception:  # noqa: BLE001
+            logger.warning("get_total_chunk_count_failed", kb_id=kb_id)
+            return 0
 
     # ---- 检索（被 MCP Tool 调用） ----
 

@@ -159,7 +159,7 @@ async def list_kbs(
 ) -> list[KnowledgeBaseSummary]:
     """列出所有知识库。"""
     get_metrics().inc(AdminMetrics.REQUESTS, {"endpoint": "list_kbs"})
-    return get_manager().list_summaries()
+    return await get_manager().list_summaries()
 
 
 @router.get(
@@ -174,7 +174,7 @@ async def get_kb(
     __: Annotated[str, Depends(admin_ratelimit_dep)],
 ) -> KnowledgeBaseSummary:
     """获取知识库详情。"""
-    summary = get_manager().get_summary(kb_id)
+    summary = await get_manager().get_summary(kb_id)
     if summary is None:
         raise HTTPException(status_code=404, detail=f"KB not found: {kb_id}")
     return summary
@@ -1109,7 +1109,7 @@ async def search_kb_admin(
 async def admin_health_detailed() -> dict[str, Any]:
     """详细健康检查（admin 前缀，便于在 admin 鉴权后访问）。"""
     manager = get_manager()
-    kbs = manager.list_summaries()
+    kbs = await manager.list_summaries()
     return {
         "status": "ok",
         "kbs_total": len(kbs),

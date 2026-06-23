@@ -115,7 +115,7 @@ def create_app() -> FastAPI:
     # 4. 启动时初始化所有 KB
     @app.on_event("startup")
     async def _startup() -> None:
-        logger.info("initializing_kbs", count=len(ctx.manager.list_summaries()))
+        logger.info("initializing_kbs", count=len(await ctx.manager.list_summaries()))
         await ctx.manager.init_all()
         logger.info("admin_started", port=settings.port)
 

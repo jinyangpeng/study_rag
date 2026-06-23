@@ -56,7 +56,7 @@ async def list_accessible_kbs(
         - document_count: 文档数量
     """
     user = await ctx.auth.resolve(api_key)
-    summaries = ctx.manager.list_summaries()
+    summaries = await ctx.manager.list_summaries()
 
     return [
         KBInfo(
@@ -93,7 +93,7 @@ async def get_kb_info(
     user = await ctx.auth.resolve(api_key)
     ctx.auth.check_kb_access(user, kb_id)
 
-    summary = ctx.manager.get_summary(kb_id)
+    summary = await ctx.manager.get_summary(kb_id)
     if summary is None:
         raise KBNotFoundError(f"KB not found: {kb_id}")
 

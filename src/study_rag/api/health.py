@@ -76,7 +76,7 @@ async def ready() -> dict:
 async def detailed() -> dict[str, Any]:
     """详细健康检查：KB / 组件 / 限流 / 熔断 / 鉴权。"""
     manager = build_default_manager()
-    kbs = manager.list_summaries()
+    kbs = await manager.list_summaries()
     return {
         "status": "ok",
         "kbs_total": len(kbs),

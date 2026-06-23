@@ -46,8 +46,12 @@ def _build_app() -> FastMCP:
     # 同步初始化所有 KB（嵌入向量库 / 创建 collection）
     import asyncio
 
-    asyncio.run(ctx.manager.init_all())
-    logger.info("kbs_initialized", count=len(ctx.manager.list_summaries()))
+    async def _bootstrap() -> None:
+        await ctx.manager.init_all()
+        summaries = await ctx.manager.list_summaries()
+        logger.info("kbs_initialized", count=len(summaries))
+
+    asyncio.run(_bootstrap())
 
     return create_mcp_server(ctx)
 

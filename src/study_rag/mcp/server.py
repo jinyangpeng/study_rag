@@ -269,7 +269,7 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
         """
         # 占位鉴权（占位实现允许所有）
         user = await ctx.auth.resolve("anonymous")
-        summaries = ctx.manager.list_summaries()
+        summaries = await ctx.manager.list_summaries()
         accessible = [
             s.model_dump() for s in summaries if s.kb_id in user.accessible_kbs
         ]
@@ -280,7 +280,7 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
         """单个知识库的详细信息（JSON 字符串）。"""
         user = await ctx.auth.resolve("anonymous")
         ctx.auth.check_kb_access(user, kb_id)
-        summary = ctx.manager.get_summary(kb_id)
+        summary = await ctx.manager.get_summary(kb_id)
         if summary is None:
             raise ValueError(f"KB not found: {kb_id}")
         return json.dumps(summary.model_dump(), ensure_ascii=False)
