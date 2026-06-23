@@ -35,6 +35,8 @@ import type {
   DocumentMeta,
   EmbedderInfo,
   HealthDetailed,
+  JobInfo,
+  CancelJobResponse,
   KnowledgeBaseConfig,
   KnowledgeBaseCreate,
   KnowledgeBaseSummary,
@@ -289,6 +291,41 @@ class ApiClient {
         `/admin/kbs/${encodeURIComponent(kbId)}/documents/upload`,
         form,
         { headers: { "Content-Type": "multipart/form-data" } }
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  // ===== Jobs（异步任务） =====
+
+  async getJob(jobId: string): Promise<JobInfo> {
+    try {
+      const { data } = await this.http.get<JobInfo>(
+        `/admin/jobs/${encodeURIComponent(jobId)}`
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async listJobs(kbId?: string): Promise<JobInfo[]> {
+    try {
+      const { data } = await this.http.get<JobInfo[]>("/admin/jobs", {
+        params: kbId ? { kb_id: kbId } : undefined,
+      });
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async cancelJob(jobId: string): Promise<CancelJobResponse> {
+    try {
+      const { data } = await this.http.delete<CancelJobResponse>(
+        `/admin/jobs/${encodeURIComponent(jobId)}`
       );
       return data;
     } catch (e) {

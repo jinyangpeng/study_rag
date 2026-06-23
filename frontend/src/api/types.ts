@@ -161,13 +161,50 @@ export interface ChunkPreviewResponse {
 }
 
 export interface UploadDocumentResponse {
+  job_id: string;
+  status: string;
   kb_id: string;
   doc_id: string;
-  title: string;
-  chunks: number;
   format: string;
   size_bytes: number;
   parser: string;
+}
+
+export type JobStatus =
+  | "pending"
+  | "running"
+  | "done"
+  | "error"
+  | "cancelled";
+
+export type JobStage =
+  | "queued"
+  | "parsing"
+  | "chunking"
+  | "embedding"
+  | "saving"
+  | "done";
+
+export interface JobInfo {
+  job_id: string;
+  type: string;
+  status: JobStatus;
+  stage: JobStage;
+  current: number;
+  total: number;
+  /** 0.0 - 1.0 */
+  progress: number;
+  message: string;
+  error: string | null;
+  kb_id: string | null;
+  doc_id: string | null;
+  filename: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CancelJobResponse {
+  status: "cancelling" | "not_cancellable" | "not_found";
 }
 
 export interface ChunkInfo {

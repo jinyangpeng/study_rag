@@ -6,12 +6,14 @@
  *   2. 文件上传：拖拽或选 txt/md/html/pdf/docx，自动解析
  *   3. 选 parser + 实时预览切块（提交前看到每块内容/大小）
  *
- * 提交流程：
- *   - 文本：调 preview → 用户确认 → 调 chunked 接口
- *   - 文件：调 upload 接口（preview 在后端 upload 路径上做）
+ * 提交流程（Phase 7 异步化）：
+ *   - 文本：调 preview → 用户确认 → 同步 addDocumentChunked（保持同步，短文档够用）
+ *   - 文件：调 upload → 拿到 job_id → 后台跑
+ *     → 轮询 /admin/jobs/{id} 显示进度
+ *     → 完成后调 onSuccess + 关闭
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Drawer,
   Tabs,
@@ -26,6 +28,7 @@ import {
   Typography,
   App as AntdApp,
   Spin,
+  Progress,
 } from "antd";
 import type { UploadProps } from "antd";
 import {
@@ -33,9 +36,16 @@ import {
   FileTextOutlined,
   CodeOutlined,
   EyeOutlined,
+  LoadingOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  StopOutlined,
 } from "@ant-design/icons";
 import { useApi } from "../api/client";
 import type {
+  JobInfo,
+  JobStatus,
+  JobStage,
   ParserSpec,
   ChunkPreviewItem,
   UploadDocumentResponse,
@@ -62,6 +72,18 @@ interface FormValues {
 
 type TabKey = "text" | "file";
 
+// 阶段中英文映射（UI 显示）
+const STAGE_LABEL: Record<JobStage, string> = {
+  queued: "排队中",
+  parsing: "解析文件",
+  chunking: "切分文本",
+  embedding: "生成向量",
+  saving: "写入数据库",
+  done: "完成",
+};
+
+const POLL_INTERVAL_MS = 1000;
+
 export default function AddDocumentDrawer({
   open,
   kbId,
@@ -77,6 +99,10 @@ export default function AddDocumentDrawer({
   const [preview, setPreview] = useState<ChunkPreviewItem[] | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Phase 7: 异步上传 + 轮询
+  const [job, setJob] = useState<JobInfo | null>(null);
+  const pollTimerRef = useRef<number | null>(null);
 
   // 拉 parser 列表
   useEffect(() => {
@@ -105,8 +131,65 @@ export default function AddDocumentDrawer({
       form.resetFields();
       setFile(null);
       setPreview(null);
+      stopPolling();
+      setJob(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, form]);
+
+  // 卸载时清理 timer
+  useEffect(() => {
+    return () => stopPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function stopPolling() {
+    if (pollTimerRef.current !== null) {
+      window.clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }
+
+  function startPolling(jobId: string) {
+    stopPolling();
+    pollTimerRef.current = window.setInterval(async () => {
+      try {
+        const info = await client.getJob(jobId);
+        setJob(info);
+        const status: JobStatus = info.status;
+        if (
+          status === "done" ||
+          status === "error" ||
+          status === "cancelled"
+        ) {
+          stopPolling();
+          if (status === "done") {
+            message.success(`${info.doc_id ?? "文档"} 上传完成`);
+            onSuccess();
+            onCancel();
+          } else if (status === "error") {
+            message.error(`上传失败: ${info.error ?? "未知错误"}`);
+          } else if (status === "cancelled") {
+            message.warning("任务已取消");
+          }
+        }
+      } catch (e) {
+        // 轮询出错 → 静默重试（不打扰用户）
+        // eslint-disable-next-line no-console
+        console.warn("job poll failed:", e);
+      }
+    }, POLL_INTERVAL_MS);
+  }
+
+  async function handleCancelJob() {
+    if (!job) return;
+    try {
+      await client.cancelJob(job.job_id);
+      message.info("已请求取消");
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  }
 
   const onPreview = async () => {
     try {
@@ -153,6 +236,8 @@ export default function AddDocumentDrawer({
           chunk_overlap: parserSpec?.chunk_overlap ?? 50,
         });
         message.success(`文档 ${v.doc_id} 添加成功`);
+        onSuccess();
+        onCancel();
       } else {
         if (!file) {
           message.error("请先选择文件");
@@ -164,18 +249,31 @@ export default function AddDocumentDrawer({
         fd.append("title", v.title);
         fd.append("parser", v.parser ?? "");
         if (v.source) fd.append("source", v.source);
+        // Phase 7: 异步上传，立即拿到 job_id
         const r: UploadDocumentResponse = await client.uploadDocument(
           kbId,
           fd
         );
-        message.success(
-          `${r.doc_id} 上传成功（${r.format}, ${r.chunks} chunks, ${(
-            r.size_bytes / 1024
-          ).toFixed(1)} KB）`
-        );
+        // 显示初始 job（pending 状态）
+        setJob({
+          job_id: r.job_id,
+          type: "upload_doc",
+          status: r.status as JobStatus,
+          stage: "queued",
+          current: 0,
+          total: 0,
+          progress: 0,
+          message: "已提交，等待处理",
+          error: null,
+          kb_id: r.kb_id,
+          doc_id: r.doc_id,
+          filename: r.format,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        // 启动轮询
+        startPolling(r.job_id);
       }
-      onSuccess();
-      onCancel();
     } catch (e) {
       if (!(e as { errorFields?: unknown }).errorFields) {
         message.error((e as Error).message);
@@ -203,6 +301,77 @@ export default function AddDocumentDrawer({
     showUploadList: false,
   };
 
+  // 渲染 job 进度面板
+  const renderJobPanel = () => {
+    if (!job) return null;
+    const pct = Math.round((job.progress ?? 0) * 100);
+    const status = job.status;
+    const stageLabel = STAGE_LABEL[job.stage] ?? job.stage;
+    let progressStatus: "active" | "success" | "exception" | "normal" =
+      "active";
+    let icon: React.ReactNode = <LoadingOutlined spin />;
+    if (status === "done") {
+      progressStatus = "success";
+      icon = <CheckCircleOutlined style={{ color: "#52c41a" }} />;
+    } else if (status === "error") {
+      progressStatus = "exception";
+      icon = <CloseCircleOutlined style={{ color: "#ff4d4f" }} />;
+    } else if (status === "cancelled") {
+      progressStatus = "normal";
+      icon = <StopOutlined style={{ color: "#faad14" }} />;
+    }
+
+    return (
+      <div
+        style={{
+          padding: 16,
+          background: "#fafafa",
+          borderRadius: 6,
+          marginTop: 16,
+        }}
+      >
+        <Space style={{ marginBottom: 8 }}>
+          {icon}
+          <Typography.Text strong>异步上传进度</Typography.Text>
+          <Tag color="blue">{stageLabel}</Tag>
+        </Space>
+        <Progress
+          percent={pct}
+          status={progressStatus}
+          strokeWidth={12}
+          format={(p) => `${p}%`}
+        />
+        <div style={{ marginTop: 8, color: "#666", fontSize: 13 }}>
+          {job.message || stageLabel}
+          {job.current > 0 && job.total > 0 && (
+            <Tag style={{ marginLeft: 8 }}>
+              {job.current} / {job.total}
+            </Tag>
+          )}
+        </div>
+        {status === "error" && job.error && (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginTop: 12 }}
+            message={job.error}
+          />
+        )}
+        {(status === "pending" || status === "running") && (
+          <Button
+            danger
+            size="small"
+            style={{ marginTop: 12 }}
+            icon={<StopOutlined />}
+            onClick={handleCancelJob}
+          >
+            取消任务
+          </Button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <Drawer
       title="添加文档"
@@ -216,10 +385,16 @@ export default function AddDocumentDrawer({
             onClick={onPreview}
             loading={previewLoading}
             icon={<EyeOutlined />}
+            disabled={!!job && (job.status === "running" || job.status === "pending")}
           >
             预览分块
           </Button>
-          <Button type="primary" onClick={onSubmit} loading={submitting}>
+          <Button
+            type="primary"
+            onClick={onSubmit}
+            loading={submitting}
+            disabled={!!job && (job.status === "running" || job.status === "pending")}
+          >
             添加
           </Button>
         </Space>
@@ -343,6 +518,8 @@ export default function AddDocumentDrawer({
         </div>
       )}
       {preview && !previewLoading && <ChunkPreviewPanel chunks={preview} />}
+
+      {renderJobPanel()}
     </Drawer>
   );
 }
