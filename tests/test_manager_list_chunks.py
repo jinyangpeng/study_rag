@@ -126,3 +126,63 @@ async def test_get_chunk_count(setup):
     )
     count = await manager.get_chunk_count("test_kb", "doc_a")
     assert count == 7
+
+
+# ---- Phase 6.6: get_total_chunk_count + summary.chunk_count ----
+
+
+@pytest.mark.asyncio
+async def test_get_total_chunk_count(setup):
+    """get_total_chunk_count 走 count()，不拉数据。"""
+    manager, vs = setup
+    await vs.insert(
+        "kb_test",
+        [
+            VectorRecord(id=f"a-{i}", vector=[0.1] * 4, text=f"t{i}",
+                         metadata={"doc_id": f"d{i % 3}"})
+            for i in range(15)
+        ],
+    )
+    n = await manager.get_total_chunk_count("test_kb")
+    assert n == 15
+
+
+@pytest.mark.asyncio
+async def test_summary_includes_chunk_count(setup):
+    """get_summary 返回的 summary 里有 chunk_count > 0。"""
+    manager, vs = setup
+    await vs.insert(
+        "kb_test",
+        [
+            VectorRecord(id=f"a-{i}", vector=[0.1] * 4, text=f"t{i}", metadata={})
+            for i in range(5)
+        ],
+    )
+    summary = await manager.get_summary("test_kb")
+    assert summary is not None
+    assert summary.chunk_count == 5
+    assert summary.document_count == 0  # 没 add_document，所以 0
+
+
+@pytest.mark.asyncio
+async def test_get_total_chunk_count_nonexistent_kb_returns_zero(setup):
+    manager, _ = setup
+    n = await manager.get_total_chunk_count("nonexistent_kb")
+    assert n == 0
+
+
+@pytest.mark.asyncio
+async def test_list_summaries_includes_chunk_count(setup):
+    """list_summaries 返回的每个 summary 都有正确的 chunk_count。"""
+    manager, vs = setup
+    await vs.insert(
+        "kb_test",
+        [
+            VectorRecord(id=f"a-{i}", vector=[0.1] * 4, text=f"t{i}", metadata={})
+            for i in range(4)
+        ],
+    )
+    summaries = await manager.list_summaries()
+    assert len(summaries) == 1
+    assert summaries[0].chunk_count == 4
+    assert summaries[0].kb_id == "test_kb"

@@ -168,3 +168,53 @@ def test_milvus_filter_complex_with_metadata():
     assert 'metadata["chunk_index"]' in expr
     # 验证包含 AND
     assert " and " in expr.lower()
+
+
+# ---- Phase 6.6: count() 方法：O(1) 拿 collection 记录数 ----
+
+
+@pytest.mark.asyncio
+async def test_count_empty_collection(mock_store):
+    """空 collection → count = 0。"""
+    await mock_store.create_collection("test", dimension=4)
+    n = await mock_store.count("test")
+    assert n == 0
+
+
+@pytest.mark.asyncio
+async def test_count_after_insert(mock_store):
+    """插入 N 条后 → count = N。"""
+    await mock_store.create_collection("test", dimension=4)
+    await mock_store.insert(
+        "test",
+        [
+            VectorRecord(id=f"r{i}", vector=[0.1] * 4, text=f"t{i}",
+                         metadata={"doc_id": f"d{i % 2}"})
+            for i in range(10)
+        ],
+    )
+    n = await mock_store.count("test")
+    assert n == 10
+
+
+@pytest.mark.asyncio
+async def test_count_nonexistent_collection(mock_store):
+    """不存在的 collection → count = 0（不是抛错）。"""
+    n = await mock_store.count("nonexistent")
+    assert n == 0
+
+
+@pytest.mark.asyncio
+async def test_count_after_delete(mock_store):
+    """删除部分记录后 → count 正确。"""
+    await mock_store.create_collection("test", dimension=4)
+    await mock_store.insert(
+        "test",
+        [
+            VectorRecord(id=f"r{i}", vector=[0.1] * 4, text=f"t{i}", metadata={})
+            for i in range(5)
+        ],
+    )
+    await mock_store.delete("test", ["r0", "r1"])
+    n = await mock_store.count("test")
+    assert n == 3
