@@ -1,47 +1,84 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
-import { Spin } from "antd";
-import MainLayout from "./components/MainLayout";
-
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const KnowledgeBases = lazy(() => import("./pages/KnowledgeBases"));
-const Documents = lazy(() => import("./pages/Documents"));
-const SearchTest = lazy(() => import("./pages/SearchTest"));
-const Metrics = lazy(() => import("./pages/Metrics"));
-const Settings = lazy(() => import("./pages/Settings"));
-const JobsPage = lazy(() => import("./pages/JobsPage"));
-
-function PageFallback() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        minHeight: 400,
-      }}
-    >
-      <Spin size="large" tip="加载中..." />
-    </div>
-  );
-}
+import { AppShell } from "./components/layout/AppShell";
+import Dashboard from "./pages/Dashboard";
+import KnowledgeBases from "./pages/KnowledgeBases";
+import Documents from "./pages/Documents";
+import SearchTest from "./pages/SearchTest";
+import JobsPage from "./pages/JobsPage";
+import Metrics from "./pages/Metrics";
+import Settings from "./pages/Settings";
 
 export default function App() {
   return (
-    <MainLayout>
-      <Suspense fallback={<PageFallback />}>
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/kbs" element={<KnowledgeBases />} />
-          <Route path="/kbs/:kbId/documents" element={<Documents />} />
-          <Route path="/search" element={<SearchTest />} />
-          <Route path="/metrics" element={<Metrics />} />
-          <Route path="/jobs" element={<JobsPage />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </Suspense>
-    </MainLayout>
+    <Suspense fallback={null}>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <AppShell>
+              <Dashboard />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <AppShell>
+              <Dashboard />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/kbs"
+          element={
+            <AppShell>
+              <KnowledgeBases />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/kbs/:kbId/documents"
+          element={
+            <AppShell>
+              <Documents />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/search"
+          element={
+            <AppShell>
+              <SearchTest />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/metrics"
+          element={
+            <AppShell>
+              <Metrics />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/jobs"
+          element={
+            <AppShell>
+              <JobsPage />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <AppShell>
+              <Settings />
+            </AppShell>
+          }
+        />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
