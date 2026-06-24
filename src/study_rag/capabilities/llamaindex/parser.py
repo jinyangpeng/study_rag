@@ -10,11 +10,24 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["NodeParserFactory", "NodeParserConfig", "ParsedNode"]
+__all__ = ["NodeParserFactory", "NodeParserConfig", "ParsedNode", "chinese_sentence_splitter"]
+
+
+def chinese_sentence_splitter(text: str) -> list[str]:
+    """中文 sentence splitter。
+
+    LlamaIndex SemanticSplitterNodeParser 默认用 NLTK punkt tokenizer（英文训练），
+    不识别中文标点 。！？，导致整篇中文文档被当作 1 句，永远不切。
+
+    修复：按中文标点 。！？\\n 切句，过滤空 + 长度 < 5 的碎片。
+    """
+    parts = re.split(r"(?<=[。！？\n])\s*", text)
+    return [p.strip() for p in parts if p.strip() and len(p.strip()) > 5]
 
 
 class NodeParserConfig:
@@ -41,6 +54,7 @@ class NodeParserConfig:
         paragraph_separator: str = "\n\n",
         buffer_size: int | None = None,
         breakpoint_percentile_threshold: int | None = None,
+        use_chinese_splitter: bool = True,
     ):
         if strategy not in ("whole", "sentence", "semantic", "token"):
             raise ValueError(
@@ -54,6 +68,7 @@ class NodeParserConfig:
         self.paragraph_separator = paragraph_separator
         self.buffer_size = buffer_size
         self.breakpoint_percentile_threshold = breakpoint_percentile_threshold
+        self.use_chinese_splitter = use_chinese_splitter
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> NodeParserConfig:
@@ -65,6 +80,7 @@ class NodeParserConfig:
             paragraph_separator=raw.get("paragraph_separator", "\n\n"),
             buffer_size=raw.get("buffer_size"),
             breakpoint_percentile_threshold=raw.get("breakpoint_percentile_threshold"),
+            use_chinese_splitter=raw.get("use_chinese_splitter", True),
         )
 
 
@@ -131,7 +147,7 @@ def _make_semantic_splitter(cfg: NodeParserConfig, embed_model):
             "SemanticSplitterNodeParser 需要 llama-index-core. 安装: pip install llama-index-core"
         ) from e
 
-    return SemanticSplitterNodeParser(
+    kwargs = dict(
         buffer_size=cfg.buffer_size if cfg.buffer_size is not None else 1,
         breakpoint_percentile_threshold=(
             cfg.breakpoint_percentile_threshold
@@ -140,6 +156,10 @@ def _make_semantic_splitter(cfg: NodeParserConfig, embed_model):
         ),
         embed_model=embed_model,
     )
+    # 中文文档：传入 chinese_sentence_splitter（LI 默认 punkt 不识别中文标点）
+    if cfg.use_chinese_splitter:
+        kwargs["sentence_splitter"] = chinese_sentence_splitter
+    return SemanticSplitterNodeParser(**kwargs)
 
 
 class NodeParserFactory:
