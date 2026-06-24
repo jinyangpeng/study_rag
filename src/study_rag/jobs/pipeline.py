@@ -128,12 +128,17 @@ async def run_chunking_pipeline(
         # 兼容两种调用签名：
         # 1) parse(content, doc_id=, title=, source=)
         # 2) parse(text, **kwargs)
-        try:
-            nodes = factory.parse(
-                text, doc_id=doc_id, title=title, source=source
-            )
-        except TypeError:
-            nodes = factory.parse(text, doc_id=doc_id)
+        # ⚠️ factory.parse 是同步（LlamaIndex 内部 embedder 调 HTTP 是阻塞的）
+        #    在 async 上下文里直接 await 会卡住整个 event loop，连响应序列化都卡
+        #    → 用 asyncio.to_thread 扔到默认 threadpool
+        def _do_parse() -> list[Any]:
+            try:
+                return factory.parse(
+                    text, doc_id=doc_id, title=title, source=source
+                )
+            except TypeError:
+                return factory.parse(text, doc_id=doc_id)
+        nodes = await asyncio.to_thread(_do_parse)
     else:
         nodes = []
 
