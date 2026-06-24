@@ -206,7 +206,7 @@ export default function KbFormModal({
       width={680}
       okText={mode === "create" ? "创建" : "保存"}
       cancelText="取消"
-      destroyOnHidden
+      destroyOnClose
     >
       {mode === "edit" && (
         <Alert

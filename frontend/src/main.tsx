@@ -3,11 +3,12 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { ConfigProvider, App as AntdApp } from "antd";
 import zhCN from "antd/locale/zh_CN";
+import { Toaster } from "sonner";
 import "antd/dist/reset.css";
 import "dayjs/locale/zh-cn";
 import App from "./App";
 import { ApiProvider } from "./api/client";
-import "./index.css";
+import "./styles/globals.css";
 
 // import.meta.env.BASE_URL = vite.config.ts 的 base
 //   dev:        "/"      (vite dev server)
@@ -30,6 +31,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <BrowserRouter basename={basename}>
             <App />
           </BrowserRouter>
+          <Toaster position="bottom-right" theme="dark" richColors />
         </ApiProvider>
       </AntdApp>
     </ConfigProvider>
