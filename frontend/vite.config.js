@@ -89,13 +89,20 @@ export default defineConfig(function (_a) {
             emptyOutDir: true,
             sourcemap: mode !== "production",
             rollupOptions: {
-                output: {
-                    manualChunks: {
-                        "react-vendor": ["react", "react-dom", "react-router-dom"],
-                        "antd-vendor": ["antd", "@ant-design/icons"],
-                    },
+            output: {
+                manualChunks: {
+                    "react-vendor": ["react", "react-dom", "react-router-dom"],
+                    "radix-vendor": [
+                        "@radix-ui/react-dialog",
+                        "@radix-ui/react-dropdown-menu",
+                        "@radix-ui/react-popover",
+                        "@radix-ui/react-select",
+                        "@radix-ui/react-tabs",
+                        "@radix-ui/react-tooltip",
+                    ],
                 },
             },
+        },
         },
     };
 });

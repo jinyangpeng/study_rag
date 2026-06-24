@@ -18,6 +18,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -26,7 +27,9 @@ import axios, {
   type AxiosInstance,
   type AxiosRequestConfig,
 } from "axios";
-import { App as AntdApp, Modal, Input } from "antd";
+import { useNavigate } from "react-router-dom";
+import { AuthPromptDialog } from "@/components/AuthPromptDialog";
+import { toast } from "sonner";
 import type {
   ChunkPreviewResponse,
   ChunksListResponse,
@@ -447,7 +450,7 @@ interface ApiContextValue {
 const ApiContext = createContext<ApiContextValue | null>(null);
 
 export function ApiProvider({ children }: { children: ReactNode }) {
-  const { message } = AntdApp.useApp();
+  const navigate = useNavigate();
   const [client] = useState(() => new ApiClient());
   const [token, setTokenState] = useState(() => client.getToken());
   const [baseURL, setBaseURLState] = useState(() => client.getBaseURL());
@@ -456,6 +459,10 @@ export function ApiProvider({ children }: { children: ReactNode }) {
   const [authEnabled, setAuthEnabled] = useState<boolean | null>(null);
   // 前端代理/网络层不通的错误（详见 ApiContextValue.proxyError）
   const [proxyError, setProxyError] = useState<string | null>(null);
+  // 鉴权引导弹窗状态
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
+  const [authPromptValue, setAuthPromptValue] = useState("");
+  const authPromptResolverRef = useRef<((v: boolean) => void) | null>(null);
 
   const setToken = useCallback(
     (t: string) => {
@@ -525,49 +532,44 @@ export function ApiProvider({ children }: { children: ReactNode }) {
   const promptAuth = useCallback(async (): Promise<boolean> => {
     if (client.hasToken()) return true;
     return new Promise<boolean>((resolve) => {
-      let value = "";
-      Modal.confirm({
-        title: "需要 Admin Token",
-        content: (
-          <div>
-            <p style={{ marginBottom: 8 }}>
-              服务端启用了 <code>STUDY_RAG_ADMIN_TOKEN</code>，
-              当前前端未配置 Token。点击「去设置」填写，或「取消」忽略。
-            </p>
-            <Input.Password
-              placeholder="Bearer token"
-              autoFocus
-              onChange={(e) => {
-                value = e.target.value;
-              }}
-              onPressEnter={() => {
-                if (value) {
-                  setToken(value);
-                  message.success("Token 已保存");
-                  resolve(true);
-                }
-              }}
-            />
-          </div>
-        ),
-        okText: "保存",
-        cancelText: "取消",
-        onOk: () => {
-          if (value) {
-            setToken(value);
-            message.success("Token 已保存");
-            resolve(true);
-          } else {
-            message.warning("Token 不能为空");
-            resolve(false);
-          }
-        },
-        onCancel: () => resolve(false),
-      });
+      authPromptResolverRef.current = resolve;
+      setAuthPromptValue("");
+      setAuthPromptOpen(true);
     });
-  }, [client, message, setToken]);
+  }, [client]);
 
-  // 全局 axios 错误 → antd message + 401 弹引导框
+  /** AuthPromptDialog 回调：保存 token */
+  const handleAuthSave = useCallback(() => {
+    if (!authPromptValue) {
+      toast.warning("Token 不能为空");
+      authPromptResolverRef.current?.(false);
+      authPromptResolverRef.current = null;
+      setAuthPromptOpen(false);
+      return;
+    }
+    setToken(authPromptValue);
+    toast.success("Token 已保存");
+    authPromptResolverRef.current?.(true);
+    authPromptResolverRef.current = null;
+    setAuthPromptOpen(false);
+  }, [authPromptValue, setToken]);
+
+  /** AuthPromptDialog 回调：取消 */
+  const handleAuthCancel = useCallback(() => {
+    authPromptResolverRef.current?.(false);
+    authPromptResolverRef.current = null;
+    setAuthPromptOpen(false);
+  }, []);
+
+  /** AuthPromptDialog 回调：跳到设置页 */
+  const handleAuthGoToSettings = useCallback(() => {
+    authPromptResolverRef.current?.(false);
+    authPromptResolverRef.current = null;
+    setAuthPromptOpen(false);
+    navigate("/settings");
+  }, [navigate]);
+
+  // 全局 axios 错误 → toast + 401 弹引导框
   useEffect(() => {
     const id = axios.interceptors.response.use(
       (r) => r,
@@ -577,18 +579,18 @@ export function ApiProvider({ children }: { children: ReactNode }) {
           if (authEnabled) {
             void promptAuth();
           } else {
-            message.error("鉴权失败 (401)，但服务端未启用鉴权，请检查 API 路径");
+            toast.error("鉴权失败 (401)，但服务端未启用鉴权，请检查 API 路径");
           }
         } else if (err.response?.status === 429) {
-          message.warning("触发限流 (429)，请稍后再试");
+          toast.warning("触发限流 (429)，请稍后再试");
         } else if (err.response && err.response.status >= 500) {
-          message.error(`服务异常 (${err.response.status})`);
+          toast.error(`服务异常 (${err.response.status})`);
         }
         return Promise.reject(err);
       }
     );
     return () => axios.interceptors.response.eject(id);
-  }, [message, authEnabled, promptAuth]);
+  }, [authEnabled, promptAuth]);
 
   const value = useMemo<ApiContextValue>(
     () => ({
@@ -619,7 +621,20 @@ export function ApiProvider({ children }: { children: ReactNode }) {
     ]
   );
 
-  return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;
+  return (
+    <ApiContext.Provider value={value}>
+      {children}
+      <AuthPromptDialog
+        state={{
+          open: authPromptOpen,
+          value: authPromptValue,
+          onSave: handleAuthSave,
+          onCancel: handleAuthCancel,
+          onGoToSettings: handleAuthGoToSettings,
+        }}
+      />
+    </ApiContext.Provider>
+  );
 }
 
 export function useApi(): ApiContextValue {
