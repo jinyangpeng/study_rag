@@ -472,6 +472,7 @@ async def add_document_chunked(
     except Exception:
         body = {}
     parser_config = body.get("parser_config")
+    parser_name = body.get("parser_name")  # 命名 parser（如 'sentence_512'）
     source = body.get("source", "")
     overwrite = body.get("overwrite", False)
 
@@ -489,6 +490,7 @@ async def add_document_chunked(
         content=content,
         source=source,
         parser_config=parser_config,
+        parser_name=parser_name,
     )
     get_metrics().inc(AdminMetrics.DOCUMENTS, {"op": "add_chunked", "status": "ok"})
     return {"kb_id": kb_id, "doc_id": doc_id, "chunks": n_chunks}
@@ -890,6 +892,33 @@ async def add_documents_batch(
     }
 
 
+async def _enrich_doc(manager, kb_id: str, doc: DocumentMeta) -> DocumentMeta:
+    """实时从 vector store 拉取 doc 的真实 chunk_count / char_count / parser。
+
+    用于 list_documents 和 get_document 两个端点，确保无论历史数据怎么错
+    （被旧 enrich 错误覆盖、写入时漏存），前端拿到的都是真实值。
+
+    失败时回退到 doc 自身的字段（即使是历史错误值也比 0 强）。
+    """
+    try:
+        n = await manager.get_chunk_count(kb_id, doc.doc_id)
+    except Exception:  # noqa: BLE001
+        n = doc.chunk_count
+    try:
+        total_chars = await manager.get_doc_total_chars(kb_id, doc.doc_id)
+    except Exception:  # noqa: BLE001
+        total_chars = doc.char_count
+    try:
+        real_parser = await manager.get_doc_parser(kb_id, doc.doc_id)
+    except Exception:  # noqa: BLE001
+        real_parser = doc.parser
+    return doc.model_copy(update={
+        "chunk_count": n,
+        "char_count": total_chars,
+        "parser": real_parser if real_parser else doc.parser,
+    })
+
+
 @router.get(
     "/kbs/{kb_id}/documents",
     response_model=list[DocumentMeta],
@@ -905,16 +934,33 @@ async def list_documents(
     _: Annotated[str, Depends(admin_auth_dep)],
     __: Annotated[str, Depends(admin_ratelimit_dep)],
 ) -> list[DocumentMeta]:
-    """列出 KB 下的所有文档。"""
+    """列出 KB 下的所有文档。
+
+    每个 DocumentMeta 的 chunk_count / char_count / parser 会被后端实时用
+    vector store 覆盖（与 list/get_document 共享 enrich 逻辑）：
+    - chunk_count: vector store 实际 chunk 数（可能与写入时的值不一致，
+      比如重复上传后部分 chunk 失败）
+    - char_count: 所有 chunk 文本长度之和（不受 content 截断 / 历史错误影响）
+    - parser: chunks metadata['parser'] 的真实值（修复老数据漏存 / 存错的问题）
+    """
     get_metrics().inc(AdminMetrics.REQUESTS, {"endpoint": "list_documents"})
-    return get_manager().list_documents(kb_id)
+    manager = get_manager()
+    docs = manager.list_documents(kb_id)
+    # 实时回填：并发拉以避免 KB 文档多时阻塞
+    import asyncio
+
+    return await asyncio.gather(*[_enrich_doc(manager, kb_id, d) for d in docs])
 
 
 @router.get(
     "/kbs/{kb_id}/documents/{doc_id}",
     response_model=DocumentMeta,
     summary="获取单个文档完整内容",
-    description="返回 doc 完整 metadata 与 content；用于管理界面预览或调试。",
+    description=(
+        "返回 doc 完整 metadata 与 content；用于管理界面预览或调试。\n\n"
+        "**注意**：返回的 chunk_count / char_count / parser 是实时从 vector store "
+        "覆盖后的值（与 list_documents 一致），不直接是内存中 _docs 的值。"
+    ),
     responses={
         404: {"description": "KB 或文档不存在"},
     },
@@ -925,13 +971,14 @@ async def get_document(
     _: Annotated[str, Depends(admin_auth_dep)],
     __: Annotated[str, Depends(admin_ratelimit_dep)],
 ) -> DocumentMeta:
-    """获取单个文档完整内容。"""
-    doc = get_manager().get_document(kb_id, doc_id)
+    """获取单个文档完整内容（实时 enrich）。"""
+    manager = get_manager()
+    doc = manager.get_document(kb_id, doc_id)
     if doc is None:
         raise HTTPException(
             status_code=404, detail=f"Document not found: {kb_id}/{doc_id}"
         )
-    return doc
+    return await _enrich_doc(manager, kb_id, doc)
 
 
 @router.get(

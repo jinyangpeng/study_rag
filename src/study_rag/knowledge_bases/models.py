@@ -136,6 +136,15 @@ class DocumentMeta(BaseModel):
         default_factory=datetime.now,
         description="创建时间（ISO 8601）",
     )
+    # 运行时统计：写入时设置；list_documents 会用 vector store 实时值覆盖
+    chunk_count: int = Field(default=0, description="该文档在向量库的 chunk 数（list 时由后端实时统计覆盖）")
+    char_count: int = Field(default=0, description="该文档内容总字符数（list 时由后端从 content 长度填）")
+    # 分块方式（pipeline / chunked add 时记录；add_document 默认为 'whole'）
+    parser: str | None = Field(
+        default=None,
+        description="分块方式（sentence_512 / whole / ...）",
+        examples=["sentence_512"],
+    )
 
 
 class ChunkInfo(BaseModel):

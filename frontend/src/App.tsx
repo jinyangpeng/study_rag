@@ -4,6 +4,7 @@ import { AppShell } from "./components/layout/AppShell";
 import Dashboard from "./pages/Dashboard";
 import KnowledgeBases from "./pages/KnowledgeBases";
 import Documents from "./pages/Documents";
+import DocumentChunks from "./pages/DocumentChunks";
 import SearchTest from "./pages/SearchTest";
 import JobsPage from "./pages/JobsPage";
 import Metrics from "./pages/Metrics";
@@ -42,6 +43,14 @@ export default function App() {
           element={
             <AppShell>
               <Documents />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/kbs/:kbId/documents/:docId/chunks"
+          element={
+            <AppShell>
+              <DocumentChunks />
             </AppShell>
           }
         />

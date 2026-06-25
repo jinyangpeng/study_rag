@@ -1,14 +1,16 @@
 /**
  * AddDocumentDialog — 添加文档弹窗
  *
- * 替代原 AddDocumentDrawer：
- *   - shadcn Dialog（不是 Drawer）— 高密度信息展示
- *   - react-hook-form + zod
- *   - Tabs（文本 / 上传）+ parser 选择
- *   - 实时预览分块
- *   - 异步上传 → 轮询 job
+ * 设计：
+ *   - shadcn Dialog + react-hook-form + zod
+ *   - Tabs：文本输入 / 文件上传（默认选中"文件上传"）
+ *   - 文本输入：同步提交，弹窗内立即看到结果
+ *   - 文件上传：异步任务。提交成功后**立即关弹窗**（用户希望），
+ *     后台分块/写库由 useJobPolling 在调用方页面继续监控，job 结束
+ *     通过 toast 通知，并刷新文档列表
+ *   - 文本 tab 可选"预览分块"功能（依赖 parser）
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,12 +18,9 @@ import {
   FileText,
   UploadCloud,
   Eye,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  StopCircle,
-  Clock,
   Inbox,
+  CheckCircle2,
+  X as CloseIcon,
 } from "lucide-react";
 import {
   Dialog,
@@ -44,21 +43,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { useApi } from "@/api/client";
 import type {
-  JobInfo,
-  JobStatus,
-  JobStage,
   ParserSpec,
   ChunkPreviewItem,
   UploadDocumentResponse,
+  JobStatus,
 } from "@/api/types";
-import { formatBytes, formatRelativeTime } from "@/lib/utils";
+import { formatBytes } from "@/lib/utils";
 import { toast } from "sonner";
+import { registerJob } from "@/hooks/useJobPolling";
 import { cn } from "@/lib/utils";
 
 const schema = z
@@ -71,7 +68,6 @@ const schema = z
     content: z.string().optional(),
     source: z.string().optional(),
     parser: z.string().min(1, "请选择切块策略"),
-    file: z.any().optional(),
   })
   .refine(() => true, { message: "" });
 
@@ -84,17 +80,6 @@ interface Props {
   onSuccess: () => void;
 }
 
-const STAGE_LABEL: Record<JobStage, string> = {
-  queued: "排队中",
-  parsing: "解析文件",
-  chunking: "切分文本",
-  embedding: "生成向量",
-  saving: "写入数据库",
-  done: "完成",
-};
-
-const POLL_INTERVAL_MS = 1000;
-
 export default function AddDocumentDialog({
   open,
   kbId,
@@ -102,15 +87,16 @@ export default function AddDocumentDialog({
   onSuccess,
 }: Props) {
   const { client } = useApi();
-  const [tab, setTab] = useState<"text" | "file">("text");
+  // 默认 tab：文件上传（按用户要求）
+  const [tab, setTab] = useState<"text" | "file">("file");
   const [parsers, setParsers] = useState<ParserSpec[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ChunkPreviewItem[] | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [job, setJob] = useState<JobInfo | null>(null);
-  const pollTimerRef = useRef<number | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // 文件上传提交后：只显示一个"已提交"短提示 + 立即关闭按钮，不阻塞关闭
+  const [submittedJobId, setSubmittedJobId] = useState<string | null>(null);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -152,55 +138,10 @@ export default function AddDocumentDialog({
       reset();
       setFile(null);
       setPreview(null);
-      setJob(null);
-      stopPolling();
+      setSubmittedJobId(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-
-  useEffect(() => () => stopPolling(), []);
-
-  function stopPolling() {
-    if (pollTimerRef.current !== null) {
-      window.clearInterval(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
-  }
-
-  function startPolling(jobId: string) {
-    stopPolling();
-    pollTimerRef.current = window.setInterval(async () => {
-      try {
-        const info = await client.getJob(jobId);
-        setJob(info);
-        const status: JobStatus = info.status;
-        if (status === "done" || status === "error" || status === "cancelled") {
-          stopPolling();
-          if (status === "done") {
-            toast.success(`${info.doc_id ?? "文档"} 上传完成`);
-            onSuccess();
-            onCancel();
-          } else if (status === "error") {
-            toast.error(`上传失败: ${info.error ?? "未知错误"}`);
-          } else if (status === "cancelled") {
-            toast.warning("任务已取消");
-          }
-        }
-      } catch (e) {
-        console.warn("job poll failed:", e);
-      }
-    }, POLL_INTERVAL_MS);
-  }
-
-  async function handleCancelJob() {
-    if (!job) return;
-    try {
-      await client.cancelJob(job.job_id);
-      toast.info("已请求取消");
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  }
 
   async function onPreview() {
     const v = getValues();
@@ -241,6 +182,8 @@ export default function AddDocumentDialog({
           metadata: {},
           chunk_size: parserSpec?.chunk_size ?? 512,
           chunk_overlap: parserSpec?.chunk_overlap ?? 50,
+          // 关键：传命名 parser（如 'sentence_512'），后端会写到 DocumentMeta.parser
+          parser_name: parserSpec?.name ?? v.parser,
         });
         toast.success(`文档 ${v.doc_id} 添加成功`);
         onSuccess();
@@ -257,10 +200,11 @@ export default function AddDocumentDialog({
         fd.append("parser", v.parser);
         if (v.source) fd.append("source", v.source);
         const r: UploadDocumentResponse = await client.uploadDocument(kbId, fd);
-        setJob({
+        // 把 job 注册到全局轮询集合（由调用方页面 useJobPolling 持续监控）
+        registerJob({
           job_id: r.job_id,
           type: "upload_doc",
-          status: r.status as JobStatus,
+          status: (r.status ?? "pending") as JobStatus,
           stage: "queued",
           current: 0,
           total: 0,
@@ -273,7 +217,11 @@ export default function AddDocumentDialog({
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
-        startPolling(r.job_id);
+        // 在弹窗内显示一个"已提交"短状态，让用户可以确认后台在跑、随时关弹窗
+        setSubmittedJobId(r.job_id);
+        toast.info(`${file.name} 已提交后台处理，可关闭弹窗`);
+        // 通知父页面：用于在 job 完成时由 hook 再次触发 loadDocs
+        onSuccess();
       }
     } catch (e) {
       toast.error((e as Error).message);
@@ -281,6 +229,11 @@ export default function AddDocumentDialog({
       setSubmitting(false);
     }
   });
+
+  function handleCloseAfterSubmit() {
+    setSubmittedJobId(null);
+    onCancel();
+  }
 
   function handleFile(f: File | null) {
     setFile(f);
@@ -297,22 +250,61 @@ export default function AddDocumentDialog({
     if (f) handleFile(f);
   }
 
-  const jobInProgress = !!job && (job.status === "running" || job.status === "pending");
+  // ============ 文件上传已提交后的"完成态" UI ============
+  if (submittedJobId) {
+    return (
+      <Dialog open={open} onOpenChange={(o) => !o && handleCloseAfterSubmit()}>
+        <DialogContent className="max-w-md p-0 gap-0 overflow-hidden">
+          <DialogHeader className="px-5 pt-5 pb-3 shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="size-4 text-success" />
+              任务已提交
+            </DialogTitle>
+            <DialogDescription>
+              分块、embedding、写库等步骤在后台异步进行。
+              关闭弹窗不影响处理，任务完成时会自动通知。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 px-5 py-2">
+            <div className="rounded border border-border-subtle bg-bg-tertiary p-3 text-xs space-y-1">
+              <div className="flex items-center gap-2">
+                <FileText className="size-3 text-fg-muted" />
+                <span className="font-mono">{file?.name}</span>
+                <Badge variant="muted" className="font-normal">
+                  {file ? formatBytes(file.size) : ""}
+                </Badge>
+              </div>
+              <div className="text-fg-muted font-mono text-[10px]">
+                job_id: {submittedJobId}
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 pt-3 shrink-0 border-t border-border-subtle px-5 pb-5">
+            <Button onClick={handleCloseAfterSubmit}>
+              <CloseIcon className="size-3" />
+              关闭弹窗
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
+  // ============ 主表单 UI ============
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && !jobInProgress && onCancel()}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-5 pt-5 pb-3 shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <FileText className="size-3.5 text-accent" />
             添加文档
           </DialogTitle>
           <DialogDescription>
-            支持文本输入（手动粘贴）或文件上传（txt/md/html/pdf/docx）
+            支持文本输入（手动粘贴）或文件上传（txt / md / html / pdf / docx）
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="space-y-3">
+        <form onSubmit={onSubmit} className="space-y-3 overflow-y-auto px-5 py-2 min-h-0 flex-1">
           <Tabs value={tab} onValueChange={(v) => setTab(v as "text" | "file")}>
             <TabsList>
               <TabsTrigger value="text">
@@ -494,14 +486,11 @@ export default function AddDocumentDialog({
             </div>
           )}
 
-          {job && <JobProgressPanel job={job} onCancel={handleCancelJob} />}
-
-          <DialogFooter className="gap-2 pt-2">
+          <DialogFooter className="gap-2 pt-3 shrink-0 border-t border-border-subtle px-5 pb-5">
             <Button
               type="button"
               variant="ghost"
               onClick={onCancel}
-              disabled={jobInProgress}
             >
               取消
             </Button>
@@ -510,86 +499,17 @@ export default function AddDocumentDialog({
               variant="outline"
               size="sm"
               onClick={onPreview}
-              disabled={jobInProgress || tab !== "text"}
+              disabled={tab !== "text"}
             >
               <Eye className="size-3" />
               预览分块
             </Button>
-            <Button type="submit" disabled={submitting || jobInProgress}>
+            <Button type="submit" disabled={submitting}>
               {submitting ? "提交中..." : tab === "text" ? "添加" : "上传"}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function JobProgressPanel({
-  job,
-  onCancel,
-}: {
-  job: JobInfo;
-  onCancel: () => void;
-}) {
-  const pct = Math.round((job.progress ?? 0) * 100);
-  const status = job.status;
-  const stageLabel = STAGE_LABEL[job.stage] ?? job.stage;
-  const cancellable = status === "pending" || status === "running";
-
-  let icon: React.ReactNode = <Loader2 className="size-3.5 animate-spin text-accent" />;
-  let color: string = "text-accent";
-  if (status === "done") {
-    icon = <CheckCircle2 className="size-3.5 text-success" />;
-    color = "text-success";
-  } else if (status === "error") {
-    icon = <XCircle className="size-3.5 text-danger" />;
-    color = "text-danger";
-  } else if (status === "cancelled") {
-    icon = <StopCircle className="size-3.5 text-warning" />;
-    color = "text-warning";
-  } else if (status === "pending") {
-    icon = <Clock className="size-3.5 text-fg-muted" />;
-    color = "text-fg-muted";
-  }
-
-  return (
-    <div className="space-y-2 rounded border border-border-subtle bg-bg-tertiary p-3">
-      <div className="flex items-center gap-2 text-xs">
-        {icon}
-        <span className="font-medium text-fg">异步上传进度</span>
-        <Badge variant="outline" className="font-normal">
-          {stageLabel}
-        </Badge>
-        <span className="ml-auto text-[10px] text-fg-muted">
-          {formatRelativeTime(job.updated_at)}
-        </span>
-      </div>
-      <Progress value={pct} />
-      <div className="flex items-center justify-between text-[10px] text-fg-muted">
-        <span>{job.message || stageLabel}</span>
-        <span>
-          {job.current > 0 && job.total > 0
-            ? `${job.current} / ${job.total}`
-            : `${pct}%`}
-        </span>
-      </div>
-      {status === "error" && job.error && (
-        <div className="rounded border border-danger/30 bg-danger/5 px-2 py-1 text-[10px] text-danger">
-          {job.error}
-        </div>
-      )}
-      {cancellable && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={onCancel}
-          className={color}
-        >
-          取消任务
-        </Button>
-      )}
-    </div>
   );
 }

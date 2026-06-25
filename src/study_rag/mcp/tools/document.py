@@ -323,20 +323,15 @@ async def add_document_chunked(
         source=source or "",
         parser_config=parser_config,
     )
-    # 补写 DocumentMeta（含 content + metadata）
-    from ...knowledge_bases.models import DocumentMeta
-
-    meta = DocumentMeta(
-        doc_id=doc_id,
-        kb_id=kb_id,
-        title=title,
-        source=source,
-        content=content,
-        metadata=full_meta,
-    )
-    # manager 内部状态写入
-    async with ctx.manager._lock:  # type: ignore[attr-defined]
-        ctx.manager._docs.setdefault(kb_id, {})[doc_id] = meta  # type: ignore[attr-defined]
+    # add_document_chunked 内部已经把 DocumentMeta（含 chunk_count / char_count /
+    # parser / content）写到 _docs，这里不要再覆盖（覆盖会清掉 chunk_count=0/char_count=0
+    # 等关键字段）。
+    # 如果用户传了 metadata，合并到已有 meta 上。
+    existing = ctx.manager.get_document(kb_id, doc_id)
+    if existing is not None and full_meta:
+        merged = existing.model_copy(update={"metadata": {**existing.metadata, **full_meta}})
+        async with ctx.manager._lock:  # type: ignore[attr-defined]
+            ctx.manager._docs[kb_id][doc_id] = merged  # type: ignore[attr-defined]
 
     logger.info("[add_document_chunked] %s/%s -> %d chunks", kb_id, doc_id, chunks)
     return AddDocumentResult(doc_id=doc_id, kb_id=kb_id, title=title, chunks=chunks)

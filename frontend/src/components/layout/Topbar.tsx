@@ -1,7 +1,7 @@
 import { useLocation } from "react-router-dom";
 import { Bell, Search, Sun, Moon } from "lucide-react";
-import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useTheme } from "@/hooks/useTheme";
 
 const TITLES: Record<string, string> = {
   "/dashboard": "系统状态",
@@ -14,12 +14,7 @@ const TITLES: Record<string, string> = {
 
 export function Topbar({ onOpenCommand }: { onOpenCommand: () => void }) {
   const { pathname } = useLocation();
-  const [dark, setDark] = useState(true);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-    document.documentElement.classList.toggle("light", !dark);
-  }, [dark]);
+  const { theme, toggleTheme } = useTheme();
 
   const topKey = "/" + (pathname.split("/").filter(Boolean)[0] ?? "dashboard");
   const title = TITLES[topKey] ?? "study_rag";
@@ -41,10 +36,10 @@ export function Topbar({ onOpenCommand }: { onOpenCommand: () => void }) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setDark((v) => !v)}
+          onClick={toggleTheme}
           title="切换主题"
         >
-          {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
         <Button variant="ghost" size="icon" title="通知">
           <Bell className="size-4" />

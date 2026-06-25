@@ -19,6 +19,9 @@ import {
   Blocks,
   Database,
   AlertCircle,
+  Upload,
+  Eye,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -50,11 +53,14 @@ import {
 } from "@/components/ui/select";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
-import AddDocumentDialog from "@/components/AddDocumentDialog";
+import AddDocumentDialog from "../components/AddDocumentDialog";
+import DocumentDetailDialog from "../components/DocumentDetailDialog";
+import BatchAddDocumentDialog from "../components/BatchAddDocumentDialog";
 import { useApi } from "@/api/client";
 import type { DocumentMeta, KnowledgeBaseSummary } from "@/api/types";
-import { formatRelativeTime } from "@/lib/utils";
+import { formatRelativeTime, formatChars } from "@/lib/utils";
 import { toast } from "sonner";
+import { useJobPolling, getActiveJobs } from "@/hooks/useJobPolling";
 
 export default function Documents() {
   const { kbId: urlKbId } = useParams<{ kbId?: string }>();
@@ -70,6 +76,8 @@ export default function Documents() {
   const [addOpen, setAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DocumentMeta | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [detailTarget, setDetailTarget] = useState<DocumentMeta | null>(null);
+  const [batchOpen, setBatchOpen] = useState(false);
 
   // 加载 KB 列表
   useEffect(() => {
@@ -94,6 +102,31 @@ export default function Documents() {
     void loadDocs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKbId]);
+
+  // 顶栏后台任务指示器（简单的"处理中"提示）
+  const [activeJobs, setActiveJobs] = useState(getActiveJobs());
+
+  // 后台任务（如文件上传）轮询：完成时刷新列表 + 弹 toast；进行中时更新顶栏计数
+  // 仅当 job 属于当前 active KB 时才触发，避免误刷新
+  useJobPolling({
+    onTerminal: ({ status, job }) => {
+      if (job.kb_id && job.kb_id !== activeKbId) return;
+      const name = job.filename || job.doc_id || "文档";
+      if (status === "done") {
+        toast.success(`${name} 处理完成`);
+        void loadDocs();
+      } else if (status === "error") {
+        toast.error(`${name} 处理失败: ${job.error ?? "未知错误"}`);
+        void loadDocs();
+      } else if (status === "cancelled") {
+        toast.warning(`${name} 任务已取消`);
+      }
+    },
+    onProgress: (jobs) => setActiveJobs(jobs),
+  });
+  const pendingCount = activeJobs.filter(
+    (j) => !j.kb_id || j.kb_id === activeKbId
+  ).length;
 
   async function loadDocs() {
     if (!activeKbId) return;
@@ -150,6 +183,15 @@ export default function Documents() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {pendingCount > 0 && (
+            <div
+              className="flex items-center gap-1.5 rounded border border-accent/30 bg-accent/5 px-2 py-1 text-[10px] text-accent"
+              title={`当前有 ${pendingCount} 个后台任务在处理`}
+            >
+              <Loader2 className="size-3 animate-spin" />
+              <span>处理中 {pendingCount}</span>
+            </div>
+          )}
           <div className="relative">
             <SearchIcon className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-fg-muted" />
             <Input
@@ -176,6 +218,15 @@ export default function Documents() {
           >
             <Plus className="size-3.5" />
             添加文档
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setBatchOpen(true)}
+            disabled={!activeKbId}
+          >
+            <Upload className="size-3.5" />
+            批量添加
           </Button>
         </div>
       </div>
@@ -258,7 +309,9 @@ export default function Documents() {
                   <TableHead>doc_id</TableHead>
                   <TableHead>标题</TableHead>
                   <TableHead>source</TableHead>
+                  <TableHead>分块方式</TableHead>
                   <TableHead className="text-right">chunks</TableHead>
+                  <TableHead className="text-right">字符数</TableHead>
                   <TableHead>创建时间</TableHead>
                   <TableHead className="w-24 text-right">操作</TableHead>
                 </TableRow>
@@ -279,25 +332,48 @@ export default function Documents() {
                         <span className="text-fg-muted">—</span>
                       )}
                     </TableCell>
+                    <TableCell>
+                      {d.parser ? (
+                        <Badge variant="outline" className="font-mono text-[10px]">
+                          {d.parser}
+                        </Badge>
+                      ) : (
+                        <span className="text-fg-muted">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       <Badge variant="outline" className="font-mono">
                         <Blocks className="mr-1 size-2.5" />
                         {d.chunk_count ?? 0}
                       </Badge>
                     </TableCell>
+                    <TableCell className="text-right font-mono text-[11px] text-fg-muted">
+                      {d.char_count != null ? formatChars(d.char_count) : "—"}
+                    </TableCell>
                     <TableCell className="text-[10px] text-fg-muted">
                       {d.created_at ? formatRelativeTime(d.created_at) : "—"}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-danger hover:text-danger"
-                        onClick={() => setDeleteTarget(d)}
-                        title="删除"
-                      >
-                        <Trash2 className="size-3" />
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-accent hover:text-accent"
+                          onClick={() => setDetailTarget(d)}
+                          title="查看详情"
+                        >
+                          <Eye className="size-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-danger hover:text-danger"
+                          onClick={() => setDeleteTarget(d)}
+                          title="删除"
+                        >
+                          <Trash2 className="size-3" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -314,6 +390,28 @@ export default function Documents() {
           onCancel={() => setAddOpen(false)}
           onSuccess={() => {
             setAddOpen(false);
+            void loadDocs();
+          }}
+        />
+      )}
+
+      {activeKbId && detailTarget && (
+        <DocumentDetailDialog
+          open={!!detailTarget}
+          kbId={activeKbId}
+          docId={detailTarget.doc_id}
+          onCancel={() => setDetailTarget(null)}
+        />
+      )}
+
+      {activeKbId && (
+        <BatchAddDocumentDialog
+          open={batchOpen}
+          kbId={activeKbId}
+          kbs={kbs}
+          onCancel={() => setBatchOpen(false)}
+          onSuccess={() => {
+            setBatchOpen(false);
             void loadDocs();
           }}
         />

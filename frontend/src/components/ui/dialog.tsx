@@ -37,7 +37,9 @@ export const DialogContent = forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border border-border bg-bg-secondary p-5 shadow-xl animate-slide-up rounded-lg",
+        // 默认约束最大高度 + 纵向 flex 布局，避免内容溢出视口
+        // 消费者可通过外部 className（如 p-0 gap-0 overflow-hidden）覆盖 padding
+        "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border border-border bg-bg-secondary p-5 shadow-xl animate-slide-up rounded-lg max-h-[calc(100vh-2rem)] flex flex-col",
         className
       )}
       {...props}

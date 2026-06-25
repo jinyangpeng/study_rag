@@ -226,8 +226,8 @@ export default function AddKBDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-5 pt-5 pb-3 shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Database className="size-3.5 text-accent" />
             {mode === "create" ? "新建知识库" : `编辑知识库 · ${initial?.kb_id}`}
@@ -240,7 +240,7 @@ export default function AddKBDialog({
         </DialogHeader>
 
         {mode === "edit" && (
-          <div className="flex items-start gap-2 rounded border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning">
+          <div className="flex items-start gap-2 rounded border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning mx-5 mb-3">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
             <div>
               kb_id / collection / embedding 改完需要重建 collection（破坏数据），
@@ -250,14 +250,15 @@ export default function AddKBDialog({
         )}
 
         {externalLoading ? (
-          <div className="space-y-3">
+          <div className="space-y-3 overflow-y-auto px-5 py-2 min-h-0 flex-1">
             <Skeleton className="h-9" />
             <Skeleton className="h-9" />
             <Skeleton className="h-20" />
             <Skeleton className="h-9" />
           </div>
         ) : (
-          <form onSubmit={onSubmit} className="space-y-3">
+          <form onSubmit={onSubmit} className="flex flex-col min-h-0 flex-1">
+            <div className="space-y-3 overflow-y-auto px-5 py-2 min-h-0 flex-1">
             <div className="grid grid-cols-2 gap-3">
               <Field
                 label="KB ID"
@@ -418,7 +419,8 @@ export default function AddKBDialog({
                 onCheckedChange={(v) => setValue("enabled", v)}
               />
             </div>
-            <DialogFooter className="gap-2 pt-2">
+            </div>
+            <DialogFooter className="gap-2 pt-3 shrink-0 border-t border-border-subtle px-5 pb-5">
               <Button type="button" variant="ghost" onClick={onCancel}>
                 取消
               </Button>

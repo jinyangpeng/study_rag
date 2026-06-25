@@ -31,22 +31,19 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApi } from "@/api/client";
 import type { HealthDetailed } from "@/api/types";
+import { useTheme } from "@/hooks/useTheme";
 import { toast } from "sonner";
 
 export default function Settings() {
   const { client, baseURL, setBaseURL, token, setToken, authEnabled, hasToken, refreshAuthStatus } =
     useApi();
+  const { theme, setTheme } = useTheme();
 
   const [baseUrlInput, setBaseUrlInput] = useState(baseURL);
   const [tokenInput, setTokenInput] = useState(token);
   const [showToken, setShowToken] = useState(false);
   const [health, setHealth] = useState<HealthDetailed | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
-  const [dark, setDark] = useState(() =>
-    typeof document !== "undefined"
-      ? document.documentElement.classList.contains("dark")
-      : true
-  );
   const [testing, setTesting] = useState(false);
 
   useEffect(() => {
@@ -71,11 +68,6 @@ export default function Settings() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-    document.documentElement.classList.toggle("light", !dark);
-  }, [dark]);
 
   async function saveBaseURL() {
     setBaseURL(baseUrlInput);
@@ -225,20 +217,23 @@ export default function Settings() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm">
-            {dark ? <Moon className="size-3.5" /> : <Sun className="size-3.5" />}
+            {theme === "dark" ? <Moon className="size-3.5" /> : <Sun className="size-3.5" />}
             外观
           </CardTitle>
-          <CardDescription>Linear 风格，深色 / 浅色二选一</CardDescription>
+          <CardDescription>Linear 风格，深色 / 浅色二选一（选择会保存到本地）</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between rounded border border-border-subtle bg-bg-tertiary px-3 py-2">
             <div>
               <Label className="text-xs">深色模式</Label>
               <div className="text-[10px] text-fg-muted">
-                当前：{dark ? "Dark" : "Light"}
+                当前：{theme === "dark" ? "Dark" : "Light"}
               </div>
             </div>
-            <Switch checked={dark} onCheckedChange={setDark} />
+            <Switch
+              checked={theme === "dark"}
+              onCheckedChange={(v) => setTheme(v ? "dark" : "light")}
+            />
           </div>
         </CardContent>
       </Card>

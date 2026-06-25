@@ -216,6 +216,9 @@ async def run_chunking_pipeline(
         source=source,
         content=text[:1000],  # 限长，避免大文档塞 metadata
         metadata={**meta_extra, "n_chunks": n_chunks, "parser": parser_name},
+        chunk_count=n_chunks,
+        char_count=len(text),
+        parser=parser_name,
     )
     async with kb_manager._lock:  # type: ignore[attr-defined]
         kb_manager._docs.setdefault(kb_id, {})[doc_id] = meta  # type: ignore[attr-defined]

@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { Toaster } from "sonner";
 import App from "./App";
 import { ApiProvider } from "./api/client";
+import { ThemeProvider } from "./hooks/useTheme";
 import "./styles/globals.css";
 
 // import.meta.env.BASE_URL = vite.config.ts 的 base
@@ -13,11 +14,13 @@ const basename = import.meta.env.BASE_URL.replace(/\/$/, "") || "/";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <ApiProvider>
-      <BrowserRouter basename={basename}>
-        <App />
-      </BrowserRouter>
-      <Toaster position="bottom-right" theme="dark" richColors />
-    </ApiProvider>
+    <BrowserRouter basename={basename}>
+      <ThemeProvider>
+        <ApiProvider>
+          <App />
+          <Toaster position="bottom-right" theme="dark" richColors />
+        </ApiProvider>
+      </ThemeProvider>
+    </BrowserRouter>
   </React.StrictMode>
 );

@@ -145,3 +145,84 @@ async def test_delete_document_unknown_kb_returns_false(setup):
     manager, _ = setup
     ok = await manager.delete_document("nonexistent_kb", "d1")
     assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_delete_after_add_document_removes_chunks(setup):
+    """回归测试：add_document (whole 模式) 写入的 chunks 必须能被 delete_document 删干净。
+
+    历史 bug：add_document 写入 VectorRecord 时 metadata 里没有 'doc_id' 字段，
+    delete_document 用 filter `metadata["doc_id"] == X` 匹配 0 条 → Milvus 残留。
+
+    修复：在 add_document 的 VectorRecord.metadata 中加入 'doc_id': doc.doc_id。
+    """
+    from study_rag.knowledge_bases.models import DocumentCreate
+
+    manager, vs = setup
+    # 走 add_document 路径（whole 模式，整篇一个 chunk）
+    await manager.add_document(
+        DocumentCreate(
+            kb_id="test_kb",
+            doc_id="whole-doc-1",
+            title="Whole Doc",
+            content="Hello, this is a whole-document test.",
+            source=None,
+            metadata={},
+        )
+    )
+    # add_document 后 vector store 应该有 1 个 chunk
+    assert await vs.count("kb_test") == 1
+
+    # 验证 metadata 里确实有 doc_id（关键不变量）
+    all_records = await vs.query("kb_test", filter_expr={})
+    assert len(all_records) == 1
+    assert all_records[0].metadata.get("doc_id") == "whole-doc-1"
+
+    # 删除 → vector store 应该清零
+    ok = await manager.delete_document("test_kb", "whole-doc-1")
+    assert ok is True
+    assert await vs.count("kb_test") == 0
+    assert manager.get_document("test_kb", "whole-doc-1") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_only_removes_target_doc_chunks(setup):
+    """回归测试：删除 doc A 时，doc B 的 chunks 必须保留。
+
+    防止修复 add_document 后，filter 改成"全删"这种回归。
+    """
+    from study_rag.knowledge_bases.models import DocumentCreate
+
+    manager, vs = setup
+    # 走 add_document 加两个文档
+    await manager.add_document(
+        DocumentCreate(
+            kb_id="test_kb",
+            doc_id="doc-a",
+            title="Doc A",
+            content="A content",
+            source=None,
+            metadata={},
+        )
+    )
+    await manager.add_document(
+        DocumentCreate(
+            kb_id="test_kb",
+            doc_id="doc-b",
+            title="Doc B",
+            content="B content",
+            source=None,
+            metadata={},
+        )
+    )
+    assert await vs.count("kb_test") == 2
+
+    # 删 doc-a
+    ok = await manager.delete_document("test_kb", "doc-a")
+    assert ok is True
+
+    # doc-b 的 chunk 必须留下
+    assert await vs.count("kb_test") == 1
+    remaining = await vs.query("kb_test", filter_expr={})
+    assert len(remaining) == 1
+    assert remaining[0].metadata.get("doc_id") == "doc-b"

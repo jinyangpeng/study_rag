@@ -272,11 +272,18 @@ class KnowledgeBaseManager:
         vector = await embedder.embed_query(doc.content)
 
         # 2. 写入向量库
+        # 注意：metadata 必须包含 "doc_id"，否则 delete_document 时
+        # filter `metadata["doc_id"] == "X"` 匹配 0 条 → Milvus 残留。
+        # add_document_chunked / pipeline 都有 doc_id，这里是历史 bug 修复。
         record = VectorRecord(
             id=doc.doc_id,
             vector=vector,
             text=doc.content,
-            metadata={"title": doc.title, "source": doc.source or ""},
+            metadata={
+                "title": doc.title,
+                "source": doc.source or "",
+                "doc_id": doc.doc_id,
+            },
         )
         await self._vector_store.insert(cfg.collection, [record])
 
@@ -288,6 +295,10 @@ class KnowledgeBaseManager:
             source=doc.source,
             content=doc.content,
             metadata=doc.metadata,
+            # whole 模式：1 个 chunk，正文字符数 = content 长度
+            chunk_count=1,
+            char_count=len(doc.content),
+            parser="whole",
         )
         async with self._lock:
             self._docs.setdefault(doc.kb_id, {})[doc.doc_id] = meta
@@ -390,6 +401,40 @@ class KnowledgeBaseManager:
             limit=10000,  # 业务上限，文档很少有 > 10k chunks
         )
         return len(records)
+
+    async def get_doc_total_chars(self, kb_id: str, doc_id: str) -> int:
+        """获取文档在向量库里的所有 chunks 的总字符数。
+
+        比 DocumentMeta.char_count 准：不受 content 截断（pipeline 截 1000 字符）
+        或历史 enrich bug 影响。等于把所有 chunk text 拼起来的长度。
+        """
+        cfg = self._registry.get(kb_id)
+        if cfg is None:
+            raise KeyError(f"Unknown kb_id: {kb_id}")
+        records = await self._vector_store.query(
+            cfg.collection,
+            filter_expr={"doc_id": doc_id},
+            limit=10000,
+        )
+        return sum(len(r.text) for r in records)
+
+    async def get_doc_parser(self, kb_id: str, doc_id: str) -> str | None:
+        """从 vector store 的 chunks metadata 里取真实的 parser 标签。
+
+        老的 doc DocumentMeta.parser 可能是 None（旧代码漏存），或 fallback 到
+        strategy 名（之前的 bug），或正确命名。统一以 vector store 为准。
+        """
+        cfg = self._registry.get(kb_id)
+        if cfg is None:
+            raise KeyError(f"Unknown kb_id: {kb_id}")
+        records = await self._vector_store.query(
+            cfg.collection,
+            filter_expr={"doc_id": doc_id},
+            limit=1,  # 只要一个 chunk 的 metadata 就够
+        )
+        if not records:
+            return None
+        return records[0].metadata.get("parser")
 
     async def get_total_chunk_count(self, kb_id: str) -> int:
         """获取 KB 整个 collection 的总 chunk 数。
@@ -513,8 +558,15 @@ class KnowledgeBaseManager:
         content: str,
         source: str = "",
         parser_config: dict | None = None,
+        parser_name: str | None = None,
     ) -> int:
         """用 NodeParser 把文档切块后写入。
+
+        Args:
+            parser_config: 原始 parser 配置 dict（strategy / chunk_size / ...）。
+                           为 None 时回退到 sentence / 512 / 50。
+            parser_name: 命名 parser 名（如 'sentence_512'），存到 DocumentMeta.parser
+                         让前端显示人类可读的名字。若 None，使用 strategy 作为兜底。
 
         Returns:
             int: 切成的块数
@@ -540,6 +592,9 @@ class KnowledgeBaseManager:
         if not nodes:
             return 0
 
+        # 用命名 parser 标识（如 'sentence_512'），没传时回退到 strategy
+        parser_label = parser_name or parser._config.strategy
+
         count = 0
         for n in nodes:
             vec = await embedder.embed_query(n.text)
@@ -552,11 +607,28 @@ class KnowledgeBaseManager:
                     "source": source,
                     "doc_id": doc_id,
                     "chunk_index": n.chunk_index,
-                    "parser": parser._config.strategy,
+                    "parser": parser_label,
                 },
             )
             await self._vector_store.insert(cfg.collection, [rec])
             count += 1
+
+        # 持久化 DocumentMeta（含 content / chunk_count / parser），
+        # 让 list_documents / get_document / delete_document 都能找到。
+        meta = DocumentMeta(
+            doc_id=doc_id,
+            kb_id=kb_id,
+            title=title,
+            source=source,
+            content=content,
+            metadata={"parser": parser_label},
+            chunk_count=count,
+            char_count=len(content),
+            parser=parser_label,
+        )
+        async with self._lock:
+            self._docs.setdefault(kb_id, {})[doc_id] = meta
+        self._save_docs_to_disk()
         return count
 
     async def add_document_from_upload(
@@ -612,6 +684,10 @@ class KnowledgeBaseManager:
         if not nodes:
             return 0
 
+        # 用命名 parser 名（如 'sentence_512'）做人类可读标识。
+        # 没传 parser_name 时回退到 strategy（如 'sentence'）。
+        parser_label = parser_name or factory._config.strategy
+
         meta_extra = dict(metadata or {})
         filename = meta_extra.get("filename", "")
 
@@ -627,7 +703,7 @@ class KnowledgeBaseManager:
                     "source": source,
                     "doc_id": doc_id,
                     "chunk_index": n.chunk_index,
-                    "parser": factory._config.strategy,
+                    "parser": parser_label,
                     "filename": filename,
                 },
             )
@@ -642,6 +718,9 @@ class KnowledgeBaseManager:
             source=source,
             content=content,
             metadata=meta_extra,
+            chunk_count=count,
+            char_count=len(content),
+            parser=parser_label,
         )
         async with self._lock:
             self._docs.setdefault(kb_id, {})[doc_id] = meta

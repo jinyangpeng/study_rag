@@ -11,6 +11,13 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** 字符数：< 1000 直接显示，>= 1000 切到 K 单位。 */
+export function formatChars(chars: number): string {
+  if (chars < 1000) return `${chars}`;
+  if (chars < 10_000) return `${(chars / 1000).toFixed(1)}K`;
+  return `${Math.round(chars / 1000)}K`;
+}
+
 export function formatRelativeTime(date: string | Date): string {
   const now = Date.now();
   const ts = new Date(date).getTime();

@@ -354,6 +354,38 @@ class ApiClient {
     }
   }
 
+  async addDocumentsBatch(
+    kbId: string,
+    payload: {
+      documents: Array<{
+        doc_id: string;
+        title: string;
+        content: string;
+        source?: string | null;
+        metadata?: Record<string, unknown>;
+      }>;
+      overwrite?: boolean;
+    }
+  ): Promise<{
+    succeeded: string[];
+    failed: Array<{ doc_id: string; error: string }>;
+    counts: { ok: number; fail: number };
+  }> {
+    try {
+      const { data } = await this.http.post<{
+        succeeded: string[];
+        failed: Array<{ doc_id: string; error: string }>;
+        counts: { ok: number; fail: number };
+      }>(
+        `/admin/kbs/${encodeURIComponent(kbId)}/documents/batch`,
+        payload
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
   async listDocumentChunks(
     kbId: string,
     docId: string,

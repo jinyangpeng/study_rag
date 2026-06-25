@@ -5,6 +5,27 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>study_rag Admin</title>
+    <script>
+      // 同步应用主题（在 React 加载前），避免首屏按默认深色渲染导致闪烁
+      // 解析顺序：localStorage > prefers-color-scheme > dark
+      (function () {
+        try {
+          var stored = localStorage.getItem("study_rag_theme");
+          var theme =
+            stored === "dark" || stored === "light"
+              ? stored
+              : window.matchMedia &&
+                window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark";
+          var el = document.documentElement;
+          el.classList.toggle("dark", theme === "dark");
+          el.classList.toggle("light", theme === "light");
+        } catch (_) {
+          /* 隐私模式 / 配额满：忽略，按默认深色 */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

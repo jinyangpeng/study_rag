@@ -160,3 +160,45 @@ async def test_add_document_chunked_still_works(manager_with_kb):
         parser_config={"strategy": "sentence", "chunk_size": 16, "chunk_overlap": 4},
     )
     assert chunks >= 1
+
+
+@pytest.mark.asyncio
+async def test_add_document_from_upload_parser_label_is_named(manager_with_kb):
+    """回归：上传时 DocumentMeta.parser 应该是命名 parser（如 'sentence_512'），
+    而不是 strategy 名（如 'sentence'）。
+
+    历史 bug：把 factory._config.strategy 当作 parser 存到 DocumentMeta，
+    导致列表/详情显示 'sentence' 而不是用户选的 'sentence_512'。
+    """
+    manager = manager_with_kb
+    await manager.add_document_from_upload(
+        kb_id="kb_up",
+        doc_id="up-named",
+        title="t",
+        content="alpha. beta. gamma. delta.",
+        parser_name="sentence_512",
+    )
+    meta = manager.get_document("kb_up", "up-named")
+    assert meta is not None
+    # 关键不变量：parser 应该是命名 parser（人类可读）
+    assert meta.parser == "sentence_512", (
+        f"DocumentMeta.parser 应该是命名 parser 'sentence_512'，"
+        f"实际是 {meta.parser!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_add_document_chunked_parser_label_falls_back_to_strategy(manager_with_kb):
+    """add_document_chunked 没传 parser_name 时，parser 字段回退到 strategy。"""
+    manager = manager_with_kb
+    await manager.add_document_chunked(
+        kb_id="kb_up",
+        doc_id="up-cb",
+        title="t",
+        content="hello. world.",
+        parser_config={"strategy": "sentence", "chunk_size": 8, "chunk_overlap": 0},
+    )
+    meta = manager.get_document("kb_up", "up-cb")
+    assert meta is not None
+    # 没传 parser_name 时回退到 strategy
+    assert meta.parser in ("sentence", "token", "semantic", "whole")

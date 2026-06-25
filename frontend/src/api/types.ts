@@ -22,7 +22,12 @@ export interface DocumentMeta {
   source?: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
+  /** 文档在向量库的 chunk 数（list 时由后端实时统计覆盖） */
   chunk_count?: number;
+  /** 文档内容总字符数（list 时由后端从 content 长度回填） */
+  char_count?: number;
+  /** 分块方式：sentence_512 / whole / ... */
+  parser?: string | null;
 }
 
 export interface DocumentCreate {
@@ -43,6 +48,8 @@ export interface DocumentChunkedCreate {
   metadata?: Record<string, unknown>;
   chunk_size: number;
   chunk_overlap: number;
+  /** 命名 parser（如 'sentence_512'），写入 DocumentMeta.parser */
+  parser_name?: string;
 }
 
 export interface SearchHit {
