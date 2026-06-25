@@ -35,7 +35,11 @@ import {
 import { EmptyState } from "@/components/shared/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { useApi } from "@/api/client";
-import type { KnowledgeBaseSummary, SearchResponse } from "@/api/types";
+import type {
+  KnowledgeBaseSummary,
+  RerankerInfo,
+  SearchResponse,
+} from "@/api/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +50,9 @@ export default function SearchTest() {
   const [query, setQuery] = useState("");
   const [topK, setTopK] = useState(5);
   const [useRerank, setUseRerank] = useState(true);
+  const [rerankers, setRerankers] = useState<RerankerInfo[]>([]);
+  // reranker 选择："" = 跟随 KB 默认；其它 = 显式指定配置名
+  const [rerankerName, setRerankerName] = useState<string>("");
   const [searching, setSearching] = useState(false);
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,8 +60,12 @@ export default function SearchTest() {
   useEffect(() => {
     (async () => {
       try {
-        const k = await client.listKBs();
+        const [k, r] = await Promise.all([
+          client.listKBs(),
+          client.listRerankers(),
+        ]);
         setKbs(k);
+        setRerankers(r);
         if (k.length > 0) setKbId(k[0].kb_id);
       } catch (e) {
         toast.error((e as Error).message);
@@ -62,6 +73,11 @@ export default function SearchTest() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 切换 KB 时，reranker 选择重置为「跟随 KB 默认」
+  useEffect(() => {
+    setRerankerName("");
+  }, [kbId]);
 
   async function onSearch() {
     if (!kbId) {
@@ -79,6 +95,8 @@ export default function SearchTest() {
         query: query.trim(),
         top_k: topK,
         use_rerank: useRerank,
+        // 显式选了 reranker 时才透传；空串表示用 KB 默认
+        reranker_name: useRerank && rerankerName ? rerankerName : null,
       });
       setResult(r);
     } catch (e) {
@@ -87,6 +105,10 @@ export default function SearchTest() {
       setSearching(false);
     }
   }
+
+  // 当前 KB 绑定的 reranker 名（用于下拉默认提示）
+  const selectedKb = kbs.find((k) => k.kb_id === kbId);
+  const kbDefaultReranker = selectedKb?.reranker ?? null;
 
   return (
     <div className="space-y-5">
@@ -143,6 +165,52 @@ export default function SearchTest() {
               </div>
             </div>
           </div>
+          {useRerank && (
+            <div className="space-y-1">
+              <Label className="text-xs">
+                Reranker 模型
+                <span className="ml-1 font-normal text-fg-muted">
+                  （空 = 跟随 KB 默认）
+                </span>
+              </Label>
+              <Select
+                value={rerankerName}
+                onValueChange={(v) => setRerankerName(v === "__kb_default__" ? "" : v)}
+                disabled={!useRerank}
+              >
+                <SelectTrigger className="h-8">
+                  <SelectValue placeholder="跟随 KB 默认" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__kb_default__">
+                    <span className="text-fg-muted">
+                      跟随 KB 默认
+                      {kbDefaultReranker ? `（${kbDefaultReranker}）` : "（无）"}
+                    </span>
+                  </SelectItem>
+                  <Separator className="my-1" />
+                  {rerankers.map((r) => (
+                      <SelectItem key={r.name} value={r.name}>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={r.loaded ? "success" : "secondary"}
+                            className="font-mono text-[10px]"
+                          >
+                            {r.provider}
+                          </Badge>
+                          <span className="font-mono text-xs">{r.name}</span>
+                          {!r.loaded && (
+                            <span className="text-[10px] text-fg-muted">
+                              按需加载
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <Separator />
           <div className="flex items-center gap-2">
             <div className="relative flex-1">

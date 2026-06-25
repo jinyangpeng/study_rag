@@ -88,6 +88,7 @@ async def search_kb(
     top_k: int = 5,
     use_rerank: bool = True,
     filter_expr: dict | None = None,
+    reranker_name: str | None = None,
     ctx: MCPContext | None = None,
 ) -> list[SearchHit]:
     """在指定知识库中检索相关内容。
@@ -102,8 +103,11 @@ async def search_kb(
       kb_id: 知识库 ID（命名规范: {dept}_{name}，如 rd_frontend）
       query: 检索问题
       top_k: 返回结果数量（默认 5，范围 (0, 50]）
-      use_rerank: 是否启用重排（默认 True）。当 KB 未配置 reranker 时该参数无效。
+      use_rerank: 是否启用重排（默认 True）。当无可用 reranker 时该参数无效。
       filter_expr: 可选的 metadata 过滤条件，例如 {"source": "wiki", "year__gte": 2024}
+      reranker_name: 可选，显式指定使用的 reranker 配置名（覆盖 KB 默认绑定的 reranker）。
+        为 None 时使用 KB 配置的 reranker；指定时从已加载的 reranker 中按名取用。
+        常用于检索调试时对比不同 reranker 的效果。仅在 use_rerank=True 时生效。
 
     返回:
       list[SearchHit]: 命中结果，按相关度倒序
@@ -111,7 +115,7 @@ async def search_kb(
     异常:
       KBNotFoundError: 知识库不存在
       PermissionDenied: 用户无权访问该 KB
-      InvalidParameterError: 参数非法（如 filter_expr 字段名非法）
+      InvalidParameterError: 参数非法（如 filter_expr 字段名非法、reranker_name 不存在）
     """
     if ctx is None:
         from ..context import MCPContext
@@ -145,7 +149,21 @@ async def search_kb(
 
     # 2. Vector Search（按需多召回，给 rerank 留足空间；透传 filter_expr）
     vector_store = _load_vector_store(ctx)
-    reranker = _load_reranker_for_kb(kb_id, ctx) if use_rerank else None
+
+    # Reranker 选择：显式 reranker_name 覆盖 KB 默认绑定的 reranker
+    #   - use_rerank=False：不重排
+    #   - use_rerank=True + reranker_name：用指定 reranker（用于检索调试对比）
+    #   - use_rerank=True + reranker_name=None：用 KB 配置的 reranker（原行为）
+    reranker: Reranker | None = None
+    if use_rerank:
+        if reranker_name:
+            try:
+                reranker = ctx.manager.get_reranker(reranker_name)
+            except ComponentUnavailableError as e:
+                raise InvalidParameterError(str(e)) from e
+        else:
+            reranker = _load_reranker_for_kb(kb_id, ctx)
+
     candidate_k = top_k * RERANK_OVER_FETCH if reranker else top_k
     candidates: list[VSResult] = await vector_store.search(
         collection=cfg.collection,

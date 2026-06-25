@@ -15,7 +15,12 @@ from ..vector_store.base import SearchResult
 class RerankerConfig(BaseModel):
     """Reranker 配置（YAML schema）。"""
 
-    provider: str = Field(..., description="实现 provider：mock / bge / cohere")
+    provider: str = Field(..., description="实现 provider：mock / bge / cohere / http")
+    # 仅 provider=http 时使用，显式声明以便 Pydantic 校验，避免写在 extra 被忽略
+    protocol: str = Field(
+        default="",
+        description="HTTP reranker 协议：tei / jina / cohere_compat / openai（仅 provider=http 生效）",
+    )
     model_name: str = Field(default="", description="模型名称")
     top_k: int = Field(default=5, description="重排后保留数量")
     extra: dict = Field(default_factory=dict, description="扩展参数")

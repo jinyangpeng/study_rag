@@ -480,17 +480,36 @@ class KnowledgeBaseManager:
         return self._vector_store
 
     def get_reranker(self, name: str) -> Reranker:
-        """按配置名获取 reranker 实例。"""
-        if name not in self._rerankers:
+        """按配置名获取 reranker 实例（未加载时按需实例化并缓存）。
+
+        检索调试时可指定 reranker.yaml 中任意已配置的 reranker，
+        即使没有被 KB 引用也会即时实例化（保持启动时按需加载的设计）。
+        """
+        if name in self._rerankers:
+            return self._rerankers[name]
+
+        # 按需加载：从 reranker.yaml 读取配置并实例化
+        cfg = _load_single_reranker_config(name)
+        if cfg is None:
             raise ComponentUnavailableError(
                 component="reranker",
                 name=name,
                 hint=(
-                    f"Reranker '{name}' not loaded (dependency missing or config error). "
-                    f"Available: {list(self._rerankers.keys()) or '[]'}."
+                    f"Reranker '{name}' not found in reranker.yaml. "
+                    f"Loaded: {list(self._rerankers.keys()) or '[]'}."
                 ),
             )
-        return self._rerankers[name]
+        try:
+            instance = create_reranker(cfg)
+        except (ImportError, ValueError) as e:
+            raise ComponentUnavailableError(
+                component="reranker",
+                name=name,
+                hint=f"Reranker '{name}' failed to initialize: {e}",
+            ) from e
+        self._rerankers[name] = instance  # 缓存，后续直接命中
+        logger.info("reranker_loaded_on_demand", name=name)
+        return instance
 
     def get_reranker_for_kb(self, kb_id: str) -> Reranker | None:
         """获取 KB 对应的 reranker 实例。
@@ -892,6 +911,28 @@ def _load_reranker_configs() -> dict[str, RerankerConfig]:
         configs[name] = RerankerConfig(**raw)
 
     return configs
+
+
+def _load_single_reranker_config(name: str) -> RerankerConfig | None:
+    """从 reranker.yaml 按名加载单个配置（不受 KB 引用过滤限制）。
+
+    用于检索调试时按需实例化未被 KB 引用的 reranker（如对比不同模型效果）。
+    返回 None 表示配置文件中不存在该 name。
+    """
+    from ..capabilities.embedding.base import _resolve_env
+
+    path = AppPaths.RERANKER_CONFIG
+    if not path.exists():
+        return None
+    import yaml
+
+    with path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    all_configs = data.get("rerankers", {})
+    if name not in all_configs:
+        return None
+    raw = _resolve_env(all_configs[name])
+    return RerankerConfig(**raw)
 
 
 # ===== 管理面辅助（前端下拉 / KB CRUD） =====

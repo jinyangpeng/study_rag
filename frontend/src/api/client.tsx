@@ -411,6 +411,8 @@ class ApiClient {
       query: string;
       top_k?: number;
       use_rerank?: boolean;
+      /** 覆盖 KB 默认 reranker；null/undefined 表示用 KB 配置的 */
+      reranker_name?: string | null;
       filter_expr?: Record<string, unknown> | null;
     }
   ): Promise<SearchResponse> {

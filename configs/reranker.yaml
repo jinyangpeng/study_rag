@@ -63,22 +63,46 @@ rerankers:
   # ============= 本地自托管（推荐生产环境） =============
   # 最常见的两种协议：
   #   ① Hugging Face TEI（text-embeddings-inference）
-  #       docker run -p 8081:80 ghcr.io/huggingface/text-embeddings-inference:1.5 \
+  #       docker run -p 8080:80 ghcr.io/huggingface/text-embeddings-inference:1.5 \
   #           --model-id BAAI/bge-reranker-v2-m3
   #       endpoint: POST /rerank
   #   ② Infinity（michaelfeil/infinity）也支持 rerank，协议相同
   # 不需要装 torch / FlagEmbedding，业务服务跟模型服务彻底解耦。
-  local_bge_m3:
+  #
+  # 注意：`protocol` 是顶层字段（与 provider 同级），不是 extra 里的。
+  # 可选值：tei | jina | cohere_compat | openai
+  #
+  # 调用示例（TEI /rerank）：
+  #   POST http://localhost:8080/rerank
+  #   { "query": "什么是人工智能", "texts": ["AI是...", "今天..."] }
+  #   → [{ "index": 0, "score": 0.94 }, ...]
+  local_bge_reranker_base:
     provider: http
-    protocol: tei                              # 协议：tei | jina | cohere_compat | openai
+    protocol: tei                              # 顶层字段；TEI 部署的 reranker 用 tei
+    model_name: BAAI/bge-reranker-base         # 仅用作日志/审计
+    top_k: 5
+    extra:
+      base_url: http://127.0.0.1:8080           # ← 本地 TEI reranker 服务地址（端口 8080）
+      # api_key: ${LOCAL_RERANK_API_KEY}        # 本地内网部署通常可空
+      timeout: 30.0
+      truncate_input_tokens: 512                # bge-reranker-base max length = 512
+      max_retries: 3                            # 失败重试次数（指数退避）
+      retry_backoff: 0.5                        # 首次重试退避秒数
+    description: "本地 TEI 部署的 BGE-reranker-base（/rerank 协议，端口 8080，中文专用 cross-encoder）"
+
+  tei_bge_m3:
+    provider: http
+    protocol: tei
     model_name: BAAI/bge-reranker-v2-m3        # 仅用作日志/审计
     top_k: 5
     extra:
-      base_url: http://10.0.0.5:8081            # ← 改成你本地 rerank 服务的地址
-      api_key: ${LOCAL_RERANK_API_KEY}          # 本地服务通常可空
+      base_url: http://127.0.0.1:8081           # TEI reranker 服务地址
+      # api_key: ${LOCAL_RERANK_API_KEY}
       timeout: 30.0
       truncate_input_tokens: 512
-    description: "本地 BGE-reranker-v2-m3（TEI /rerank 协议，多语言）"
+      max_retries: 3
+      retry_backoff: 0.5
+    description: "TEI 部署的 BGE-reranker-v2-m3（/rerank 协议，多语言，参考示例）"
 
   local_bge_large:
     provider: http

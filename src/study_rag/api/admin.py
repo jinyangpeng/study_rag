@@ -1134,6 +1134,7 @@ async def search_kb_admin(
     top_k = int(body.get("top_k", 5))
     use_rerank = bool(body.get("use_rerank", True))
     filter_expr = body.get("filter_expr")
+    reranker_name = body.get("reranker_name")  # 可选，覆盖 KB 默认 reranker
 
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
@@ -1149,6 +1150,7 @@ async def search_kb_admin(
             top_k=top_k,
             use_rerank=use_rerank,
             filter_expr=filter_expr,
+            reranker_name=reranker_name,
             ctx=ctx,
         )
     except Exception as e:
