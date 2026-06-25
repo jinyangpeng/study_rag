@@ -145,6 +145,102 @@ export interface RerankerInfo {
   description: string;
 }
 
+// ===== 模型配置管理（CRUD）=====
+
+export interface EmbedderConfigItem {
+  name: string;
+  provider: string;
+  model_name: string;
+  dimension: number;
+  batch_size: number;
+  description: string;
+  extra: Record<string, unknown>;
+  loaded: boolean;
+}
+
+export interface EmbedderConfigCreate {
+  name: string;
+  provider: string;
+  model_name?: string;
+  dimension?: number;
+  batch_size?: number;
+  description?: string;
+  extra?: Record<string, unknown>;
+}
+
+export interface EmbedderConfigUpdate {
+  provider?: string;
+  model_name?: string;
+  dimension?: number;
+  batch_size?: number;
+  description?: string;
+  extra?: Record<string, unknown>;
+}
+
+export interface RerankerConfigItem {
+  name: string;
+  provider: string;
+  protocol: string;
+  model_name: string;
+  top_k: number;
+  description: string;
+  extra: Record<string, unknown>;
+  loaded: boolean;
+}
+
+export interface RerankerConfigCreate {
+  name: string;
+  provider: string;
+  protocol?: string;
+  model_name?: string;
+  top_k?: number;
+  description?: string;
+  extra?: Record<string, unknown>;
+}
+
+export interface RerankerConfigUpdate {
+  provider?: string;
+  protocol?: string;
+  model_name?: string;
+  top_k?: number;
+  description?: string;
+  extra?: Record<string, unknown>;
+}
+
+// ===== Parser（分块配置）CRUD =====
+
+export interface ParserConfigItem {
+  name: string;
+  strategy: string;
+  chunk_size: number;
+  chunk_overlap: number;
+  paragraph_separator: string;
+  buffer_size: number | null;
+  breakpoint_percentile_threshold: number | null;
+  extra: Record<string, unknown>;
+}
+
+export interface ParserConfigCreate {
+  name: string;
+  strategy: string;
+  chunk_size?: number;
+  chunk_overlap?: number;
+  paragraph_separator?: string;
+  buffer_size?: number | null;
+  breakpoint_percentile_threshold?: number | null;
+  extra?: Record<string, unknown>;
+}
+
+export interface ParserConfigUpdate {
+  strategy?: string;
+  chunk_size?: number;
+  chunk_overlap?: number;
+  paragraph_separator?: string;
+  buffer_size?: number | null;
+  breakpoint_percentile_threshold?: number | null;
+  extra?: Record<string, unknown>;
+}
+
 export interface ParserSpec {
   name: string;
   strategy: "whole" | "sentence" | "token" | "semantic";

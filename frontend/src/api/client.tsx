@@ -36,6 +36,9 @@ import type {
   DocumentCreate,
   DocumentChunkedCreate,
   DocumentMeta,
+  EmbedderConfigCreate,
+  EmbedderConfigItem,
+  EmbedderConfigUpdate,
   EmbedderInfo,
   HealthDetailed,
   JobInfo,
@@ -44,7 +47,13 @@ import type {
   KnowledgeBaseCreate,
   KnowledgeBaseSummary,
   KnowledgeBaseUpdate,
+  ParserConfigCreate,
+  ParserConfigItem,
+  ParserConfigUpdate,
   ParserSpec,
+  RerankerConfigCreate,
+  RerankerConfigItem,
+  RerankerConfigUpdate,
   RerankerInfo,
   SearchResponse,
   UploadDocumentResponse,
@@ -206,6 +215,156 @@ class ApiClient {
     try {
       const { data } = await this.http.get<RerankerInfo[]>("/admin/rerankers");
       return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  // ===== Embedder 配置管理（CRUD）=====
+
+  async listEmbedderConfigs(): Promise<EmbedderConfigItem[]> {
+    try {
+      const { data } = await this.http.get<EmbedderConfigItem[]>(
+        "/admin/embedders/configs"
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async createEmbedderConfig(
+    payload: EmbedderConfigCreate
+  ): Promise<EmbedderConfigItem> {
+    try {
+      const { data } = await this.http.post<EmbedderConfigItem>(
+        "/admin/embedders/configs",
+        payload
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async updateEmbedderConfig(
+    name: string,
+    patch: EmbedderConfigUpdate
+  ): Promise<EmbedderConfigItem> {
+    try {
+      const { data } = await this.http.put<EmbedderConfigItem>(
+        `/admin/embedders/configs/${encodeURIComponent(name)}`,
+        patch
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async deleteEmbedderConfig(name: string): Promise<void> {
+    try {
+      await this.http.delete(`/admin/embedders/configs/${encodeURIComponent(name)}`);
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  // ===== Reranker 配置管理（CRUD）=====
+
+  async listRerankerConfigs(): Promise<RerankerConfigItem[]> {
+    try {
+      const { data } = await this.http.get<RerankerConfigItem[]>(
+        "/admin/rerankers/configs"
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async createRerankerConfig(
+    payload: RerankerConfigCreate
+  ): Promise<RerankerConfigItem> {
+    try {
+      const { data } = await this.http.post<RerankerConfigItem>(
+        "/admin/rerankers/configs",
+        payload
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async updateRerankerConfig(
+    name: string,
+    patch: RerankerConfigUpdate
+  ): Promise<RerankerConfigItem> {
+    try {
+      const { data } = await this.http.put<RerankerConfigItem>(
+        `/admin/rerankers/configs/${encodeURIComponent(name)}`,
+        patch
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async deleteRerankerConfig(name: string): Promise<void> {
+    try {
+      await this.http.delete(`/admin/rerankers/configs/${encodeURIComponent(name)}`);
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  // ===== Parser 配置管理（CRUD）=====
+
+  async listParserConfigs(): Promise<ParserConfigItem[]> {
+    try {
+      const { data } = await this.http.get<ParserConfigItem[]>(
+        "/admin/parsers/configs"
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async createParserConfig(
+    payload: ParserConfigCreate
+  ): Promise<ParserConfigItem> {
+    try {
+      const { data } = await this.http.post<ParserConfigItem>(
+        "/admin/parsers/configs",
+        payload
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async updateParserConfig(
+    name: string,
+    patch: ParserConfigUpdate
+  ): Promise<ParserConfigItem> {
+    try {
+      const { data } = await this.http.put<ParserConfigItem>(
+        `/admin/parsers/configs/${encodeURIComponent(name)}`,
+        patch
+      );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async deleteParserConfig(name: string): Promise<void> {
+    try {
+      await this.http.delete(`/admin/parsers/configs/${encodeURIComponent(name)}`);
     } catch (e) {
       throw new Error(this.unwrapError(e));
     }
@@ -409,7 +568,8 @@ class ApiClient {
     kbId: string,
     body: {
       query: string;
-      top_k?: number;
+      /** 返回数量；null = 跟随 reranker 配置的 top_k */
+      top_k?: number | null;
       use_rerank?: boolean;
       /** 覆盖 KB 默认 reranker；null/undefined 表示用 KB 配置的 */
       reranker_name?: string | null;

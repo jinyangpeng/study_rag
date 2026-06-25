@@ -92,6 +92,145 @@ class RerankerInfo(BaseModel):
     description: str = Field(default="")
 
 
+# ===== 模型配置管理（embeddings.yaml / reranker.yaml CRUD）=====
+
+
+class EmbedderConfigItem(BaseModel):
+    """embedder 配置（管理面用，含完整字段）。"""
+
+    name: str = Field(..., description="配置名（embeddings.yaml 中的 key）")
+    provider: str = Field(..., description="实现 provider: bge / openai / mock / ...")
+    model_name: str = Field(default="", description="模型名称")
+    dimension: int = Field(default=0, description="向量维度")
+    batch_size: int = Field(default=32, description="批处理大小")
+    description: str = Field(default="", description="管理员备注")
+    extra: dict[str, Any] = Field(default_factory=dict, description="扩展参数（api_key/base_url 等）")
+    loaded: bool = Field(default=False, description="当前是否已加载")
+
+
+class EmbedderConfigCreate(BaseModel):
+    """创建 embedder 配置请求体。"""
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$",
+        description="配置名（字母开头，字母/数字/下划线）",
+        examples=["local_bge_m3"],
+    )
+    provider: str = Field(..., description="实现 provider")
+    model_name: str = Field(default="", description="模型名称")
+    dimension: int = Field(default=0, ge=0, description="向量维度")
+    batch_size: int = Field(default=32, ge=1, description="批处理大小")
+    description: str = Field(default="", description="管理员备注")
+    extra: dict[str, Any] = Field(default_factory=dict, description="扩展参数")
+
+
+class EmbedderConfigUpdate(BaseModel):
+    """更新 embedder 配置请求体（部分字段，name 不可改）。"""
+
+    provider: str | None = Field(default=None)
+    model_name: str | None = Field(default=None)
+    dimension: int | None = Field(default=None, ge=0)
+    batch_size: int | None = Field(default=None, ge=1)
+    description: str | None = Field(default=None)
+    extra: dict[str, Any] | None = Field(default=None)
+
+
+class RerankerConfigItem(BaseModel):
+    """reranker 配置（管理面用，含完整字段）。"""
+
+    name: str = Field(..., description="配置名（reranker.yaml 中的 key）")
+    provider: str = Field(..., description="实现 provider: bge / cohere / http / ...")
+    protocol: str = Field(default="", description="HTTP 协议：tei/jina/...（仅 provider=http）")
+    model_name: str = Field(default="", description="模型名称")
+    top_k: int = Field(default=5, description="重排后保留数量")
+    description: str = Field(default="", description="管理员备注")
+    extra: dict[str, Any] = Field(default_factory=dict, description="扩展参数")
+    loaded: bool = Field(default=False, description="当前是否已加载")
+
+
+class RerankerConfigCreate(BaseModel):
+    """创建 reranker 配置请求体。"""
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$",
+        description="配置名（字母开头，字母/数字/下划线）",
+        examples=["local_bge_reranker_base"],
+    )
+    provider: str = Field(..., description="实现 provider")
+    protocol: str = Field(default="", description="HTTP 协议（仅 provider=http 生效）")
+    model_name: str = Field(default="", description="模型名称")
+    top_k: int = Field(default=5, ge=1, description="重排后保留数量")
+    description: str = Field(default="", description="管理员备注")
+    extra: dict[str, Any] = Field(default_factory=dict, description="扩展参数")
+
+
+class RerankerConfigUpdate(BaseModel):
+    """更新 reranker 配置请求体（部分字段，name 不可改）。"""
+
+    provider: str | None = Field(default=None)
+    protocol: str | None = Field(default=None)
+    model_name: str | None = Field(default=None)
+    top_k: int | None = Field(default=None, ge=1)
+    description: str | None = Field(default=None)
+    extra: dict[str, Any] | None = Field(default=None)
+
+
+# ===== Parser（分块配置）CRUD 模型 =====
+
+
+class ParserConfigItem(BaseModel):
+    """parser 配置（管理面用，含完整字段）。"""
+
+    name: str = Field(..., description="配置名（llamaindex.yaml parsers 中的 key）")
+    strategy: str = Field(..., description="切块策略：whole / sentence / semantic / token")
+    chunk_size: int = Field(default=512, description="目标 chunk 大小")
+    chunk_overlap: int = Field(default=50, description="相邻 chunk 重叠")
+    paragraph_separator: str = Field(default="\n\n", description="段落分隔符")
+    buffer_size: int | None = Field(default=None, description="semantic 策略滑动窗口")
+    breakpoint_percentile_threshold: int | None = Field(
+        default=None, description="semantic 策略切块百分位阈值"
+    )
+    extra: dict[str, Any] = Field(default_factory=dict, description="其它参数（separator 等）")
+
+
+class ParserConfigCreate(BaseModel):
+    """创建 parser 配置请求体。"""
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$",
+        description="配置名（字母开头，字母/数字/下划线）",
+        examples=["sentence_512"],
+    )
+    strategy: str = Field(..., description="切块策略：whole / sentence / semantic / token")
+    chunk_size: int = Field(default=512, ge=1, description="目标 chunk 大小")
+    chunk_overlap: int = Field(default=50, ge=0, description="相邻 chunk 重叠")
+    paragraph_separator: str = Field(default="\n\n", description="段落分隔符")
+    buffer_size: int | None = Field(default=None, ge=0)
+    breakpoint_percentile_threshold: int | None = Field(default=None, ge=0, le=100)
+    extra: dict[str, Any] = Field(default_factory=dict, description="其它参数")
+
+
+class ParserConfigUpdate(BaseModel):
+    """更新 parser 配置请求体（部分字段，name 不可改）。"""
+
+    strategy: str | None = Field(default=None)
+    chunk_size: int | None = Field(default=None, ge=1)
+    chunk_overlap: int | None = Field(default=None, ge=0)
+    paragraph_separator: str | None = Field(default=None)
+    buffer_size: int | None = Field(default=None, ge=0)
+    breakpoint_percentile_threshold: int | None = Field(default=None, ge=0, le=100)
+    extra: dict[str, Any] | None = Field(default=None)
+
+
 class KnowledgeBase(BaseModel):
     """运行时知识库实例。"""
 

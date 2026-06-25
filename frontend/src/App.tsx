@@ -8,6 +8,7 @@ import DocumentChunks from "./pages/DocumentChunks";
 import SearchTest from "./pages/SearchTest";
 import JobsPage from "./pages/JobsPage";
 import Metrics from "./pages/Metrics";
+import ModelConfigs from "./pages/ModelConfigs";
 import Settings from "./pages/Settings";
 
 export default function App() {
@@ -67,6 +68,14 @@ export default function App() {
           element={
             <AppShell>
               <Metrics />
+            </AppShell>
+          }
+        />
+        <Route
+          path="/models"
+          element={
+            <AppShell>
+              <ModelConfigs />
             </AppShell>
           }
         />

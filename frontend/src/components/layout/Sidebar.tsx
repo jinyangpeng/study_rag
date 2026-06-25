@@ -6,6 +6,7 @@ import {
   LineChart,
   Settings,
   ListTodo,
+  Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,7 @@ const NAV = [
   { to: "/dashboard", icon: LayoutDashboard, label: "系统状态" },
   { to: "/kbs", icon: Database, label: "知识库" },
   { to: "/search", icon: Search, label: "检索测试" },
+  { to: "/models", icon: Boxes, label: "模型配置" },
   { to: "/jobs", icon: ListTodo, label: "异步任务" },
   { to: "/metrics", icon: LineChart, label: "Metrics" },
   { to: "/settings", icon: Settings, label: "设置" },

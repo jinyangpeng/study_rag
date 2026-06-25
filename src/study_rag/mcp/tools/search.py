@@ -53,20 +53,25 @@ async def _rerank_with_fallback(
     reranker: Reranker | None,
     query: str,
     candidates: list[VSResult],
-    top_k: int,
+    top_k: int | None,
+    fallback_top_k: int,
 ) -> list[VSResult]:
     """调用 reranker 重排，失败时降级为截断原始顺序。
 
     Enterprise 实践：
       - rerank 失败不应阻塞搜索（即使精度降低）
       - 记录 warning 便于排查
+
+    参数:
+      top_k: 传给 reranker 的 top_k；None 表示让 reranker 用自身配置
+      fallback_top_k: 降级（无 reranker 或 rerank 失败）时截断用的数量
     """
     if not candidates:
         return []
 
     if reranker is None:
         # KB 未配置 reranker，直接截断
-        return candidates[:top_k]
+        return candidates[:fallback_top_k]
 
     try:
         return await reranker.rerank(query=query, results=candidates, top_k=top_k)
@@ -76,7 +81,7 @@ async def _rerank_with_fallback(
             query[:30],
             e,
         )
-        return candidates[:top_k]
+        return candidates[:fallback_top_k]
 
 
 # ---- Tool ----
@@ -85,7 +90,7 @@ async def search_kb(
     api_key: str,
     kb_id: str,
     query: str,
-    top_k: int = 5,
+    top_k: int | None = None,
     use_rerank: bool = True,
     filter_expr: dict | None = None,
     reranker_name: str | None = None,
@@ -102,7 +107,8 @@ async def search_kb(
       api_key: 用户凭证
       kb_id: 知识库 ID（命名规范: {dept}_{name}，如 rd_frontend）
       query: 检索问题
-      top_k: 返回结果数量（默认 5，范围 (0, 50]）
+      top_k: 返回结果数量（范围 (0, 50]）。None 表示跟随 reranker 配置的 top_k；
+        无 reranker 时用默认值 5。显式传值会覆盖 reranker 配置。
       use_rerank: 是否启用重排（默认 True）。当无可用 reranker 时该参数无效。
       filter_expr: 可选的 metadata 过滤条件，例如 {"source": "wiki", "year__gte": 2024}
       reranker_name: 可选，显式指定使用的 reranker 配置名（覆盖 KB 默认绑定的 reranker）。
@@ -124,8 +130,8 @@ async def search_kb(
 
     if not query or not query.strip():
         raise InvalidParameterError("query must not be empty")
-    if top_k <= 0 or top_k > 50:
-        raise InvalidParameterError("top_k must be in (0, 50]")
+    if top_k is not None and (top_k <= 0 or top_k > 50):
+        raise InvalidParameterError("top_k must be in (0, 50] or None")
 
     # 鉴权
     user = await ctx.auth.resolve(api_key)
@@ -147,13 +153,10 @@ async def search_kb(
         # KB 存在但 embedder 未加载：传成 InvalidParameterError，提示用户修配置/装依赖
         raise InvalidParameterError(str(e)) from e
 
-    # 2. Vector Search（按需多召回，给 rerank 留足空间；透传 filter_expr）
-    vector_store = _load_vector_store(ctx)
-
-    # Reranker 选择：显式 reranker_name 覆盖 KB 默认绑定的 reranker
-    #   - use_rerank=False：不重排
-    #   - use_rerank=True + reranker_name：用指定 reranker（用于检索调试对比）
-    #   - use_rerank=True + reranker_name=None：用 KB 配置的 reranker（原行为）
+    # 2. Reranker 选择：显式 reranker_name 覆盖 KB 默认绑定的 reranker
+    #    - use_rerank=False：不重排
+    #    - use_rerank=True + reranker_name：用指定 reranker（用于检索调试对比）
+    #    - use_rerank=True + reranker_name=None：用 KB 配置的 reranker（原行为）
     reranker: Reranker | None = None
     if use_rerank:
         if reranker_name:
@@ -164,7 +167,16 @@ async def search_kb(
         else:
             reranker = _load_reranker_for_kb(kb_id, ctx)
 
-    candidate_k = top_k * RERANK_OVER_FETCH if reranker else top_k
+    # 解析向量召回数（embedding 返回的数量，即用户在检索测试页填的 Top K）：
+    #   - 用户显式传了 top_k → 用用户的值
+    #   - top_k=None → 默认 5
+    recall_k = top_k if top_k is not None else 5
+
+    # 3. Vector Search：recall_k 即向量召回数
+    #    启用 reranker 时为保证 rerank 有足够候选，按 recall_k * OVER_FETCH 多召回，
+    #    最终由 reranker 用自身配置的 top_k 过滤到目标数量。
+    vector_store = _load_vector_store(ctx)
+    candidate_k = recall_k * RERANK_OVER_FETCH if reranker else recall_k
     candidates: list[VSResult] = await vector_store.search(
         collection=cfg.collection,
         query_vector=query_vector,
@@ -173,11 +185,14 @@ async def search_kb(
     )
 
     # 3. Rerank（KB 配置了 reranker 时才生效；失败则降级为截断）
+    #    始终传 top_k=None 给 reranker，让它用自身配置的 top_k 过滤
+    #    （用户的 Top K 是向量召回数，不覆盖 reranker 的重排保留数）
     results = await _rerank_with_fallback(
         reranker=reranker,
         query=query,
         candidates=candidates,
-        top_k=top_k,
+        top_k=None,
+        fallback_top_k=recall_k,
     )
 
     return [

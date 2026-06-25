@@ -48,7 +48,7 @@ export default function SearchTest() {
   const [kbs, setKbs] = useState<KnowledgeBaseSummary[]>([]);
   const [kbId, setKbId] = useState<string>("");
   const [query, setQuery] = useState("");
-  const [topK, setTopK] = useState(5);
+  const [topK, setTopK] = useState<number | null>(null); // null = 跟随 reranker 配置
   const [useRerank, setUseRerank] = useState(true);
   const [rerankers, setRerankers] = useState<RerankerInfo[]>([]);
   // reranker 选择："" = 跟随 KB 默认；其它 = 显式指定配置名
@@ -93,7 +93,7 @@ export default function SearchTest() {
     try {
       const r = await client.search(kbId, {
         query: query.trim(),
-        top_k: topK,
+        top_k: topK, // null = 跟随 reranker 配置
         use_rerank: useRerank,
         // 显式选了 reranker 时才透传；空串表示用 KB 默认
         reranker_name: useRerank && rerankerName ? rerankerName : null,
@@ -144,15 +144,29 @@ export default function SearchTest() {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Top K</Label>
+              <Label className="text-xs">
+                Top K
+                <span className="ml-1 font-normal text-fg-muted">
+                  （向量召回数）
+                </span>
+              </Label>
               <Input
                 type="number"
                 min={1}
                 max={50}
-                value={topK}
-                onChange={(e) => setTopK(Number(e.target.value) || 5)}
+                value={topK ?? 5}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setTopK(v === "" ? null : Number(v) || null);
+                }}
+                placeholder="5"
                 className="font-mono"
               />
+              {useRerank && (
+                <p className="text-[10px] text-fg-muted">
+                  启用 reranker 时，从召回结果中按 reranker 配置的 top_k 过滤
+                </p>
+              )}
             </div>
             <div className="flex flex-col space-y-1">
               <Label className="text-xs">Rerank</Label>

@@ -42,6 +42,7 @@ from ..jobs import (
     JobStatus,
     run_chunking_pipeline,
 )
+from ..knowledge_bases import manager as _mgr_mod
 from ..knowledge_bases.manager import (
     ComponentUnavailableError,
     DocumentCreate,
@@ -54,10 +55,19 @@ from ..knowledge_bases.manager import (
     list_available_rerankers,
 )
 from ..knowledge_bases.models import (
+    EmbedderConfigCreate,
+    EmbedderConfigItem,
+    EmbedderConfigUpdate,
     EmbedderInfo,
     KnowledgeBaseConfig,
     KnowledgeBaseCreate,
     KnowledgeBaseUpdate,
+    ParserConfigCreate,
+    ParserConfigItem,
+    ParserConfigUpdate,
+    RerankerConfigCreate,
+    RerankerConfigItem,
+    RerankerConfigUpdate,
     RerankerInfo,
 )
 from ..knowledge_bases.registry import (
@@ -66,6 +76,8 @@ from ..knowledge_bases.registry import (
     get_registry,
     update_kb,
 )
+from ..knowledge_bases import config_store
+from ..knowledge_bases.config_store import ConfigNotFoundError
 from ..mcp.context import MCPContext
 from ..mcp.tools.search import search_kb as mcp_search_kb
 from ..observability.logging import get_logger
@@ -377,6 +389,347 @@ async def list_rerankers_endpoint(
 ) -> list[RerankerInfo]:
     """列出可用 reranker。"""
     return [RerankerInfo(**r) for r in list_available_rerankers()]
+
+
+# ===== Embedder / Reranker 配置管理（CRUD，写 YAML） =====
+#
+# 与 list 接口（只读，给下拉用）的区别：这组接口直接读写 embeddings.yaml /
+# reranker.yaml，供「模型配置」管理页用。改完需重启或重新加载才能生效
+# （运行时已加载的实例不会热更新，避免影响正在服务的 KB）。
+
+
+def _embedder_item(name: str, raw: dict, loaded_names: set[str]) -> EmbedderConfigItem:
+    return EmbedderConfigItem(
+        name=name,
+        provider=str(raw.get("provider", "")),
+        model_name=str(raw.get("model_name", "")),
+        dimension=int(raw.get("dimension", 0)),
+        batch_size=int(raw.get("batch_size", 32)),
+        description=str(raw.get("description", "")),
+        extra=raw.get("extra", {}) if isinstance(raw.get("extra"), dict) else {},
+        loaded=name in loaded_names,
+    )
+
+
+def _reranker_item(name: str, raw: dict, loaded_names: set[str]) -> RerankerConfigItem:
+    return RerankerConfigItem(
+        name=name,
+        provider=str(raw.get("provider", "")),
+        protocol=str(raw.get("protocol", "")),
+        model_name=str(raw.get("model_name", "")),
+        top_k=int(raw.get("top_k", 5)),
+        description=str(raw.get("description", "")),
+        extra=raw.get("extra", {}) if isinstance(raw.get("extra"), dict) else {},
+        loaded=name in loaded_names,
+    )
+
+
+def _loaded_embedder_names() -> set[str]:
+    singleton = _mgr_mod._manager_singleton
+    if singleton is not None:
+        return set(singleton._embedders.keys())  # type: ignore[attr-defined]
+    return set()
+
+
+def _loaded_reranker_names() -> set[str]:
+    singleton = _mgr_mod._manager_singleton
+    if singleton is not None:
+        return set(singleton._rerankers.keys())  # type: ignore[attr-defined]
+    return set()
+
+
+@router.get(
+    "/embedders/configs",
+    response_model=list[EmbedderConfigItem],
+    summary="列出所有 embedder 配置（含完整字段，管理用）",
+)
+async def list_embedder_configs_endpoint(
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> list[EmbedderConfigItem]:
+    loaded = _loaded_embedder_names()
+    return [
+        _embedder_item(n, raw, loaded)
+        for n, raw in config_store.list_embedder_configs_raw().items()
+    ]
+
+
+@router.post(
+    "/embedders/configs",
+    response_model=EmbedderConfigItem,
+    status_code=201,
+    summary="新建 embedder 配置",
+)
+async def create_embedder_config_endpoint(
+    payload: EmbedderConfigCreate,
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> EmbedderConfigItem:
+    raw = {
+        "provider": payload.provider,
+        "model_name": payload.model_name,
+        "dimension": payload.dimension,
+        "batch_size": payload.batch_size,
+        "description": payload.description,
+        "extra": payload.extra,
+    }
+    try:
+        config_store.create_embedder_config(payload.name, raw)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return _embedder_item(payload.name, raw, _loaded_embedder_names())
+
+
+@router.put(
+    "/embedders/configs/{name}",
+    response_model=EmbedderConfigItem,
+    summary="更新 embedder 配置",
+)
+async def update_embedder_config_endpoint(
+    name: str,
+    payload: EmbedderConfigUpdate,
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> EmbedderConfigItem:
+    patch = payload.model_dump(exclude_unset=True)
+    try:
+        merged = config_store.update_embedder_config(name, patch)
+    except ConfigNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"embedder config not found: {name}") from e
+    return _embedder_item(name, merged, _loaded_embedder_names())
+
+
+@router.delete(
+    "/embedders/configs/{name}",
+    summary="删除 embedder 配置",
+)
+async def delete_embedder_config_endpoint(
+    name: str,
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> dict:
+    # 防御：被 KB 引用时不允许删除
+    referenced = {
+        cfg.embedding for cfg in get_registry().all_cfgs() if cfg.embedding
+    }
+    if name in referenced:
+        raise HTTPException(
+            status_code=409,
+            detail=f"embedder '{name}' is referenced by KB(s); remove the reference first",
+        )
+    try:
+        config_store.delete_embedder_config(name)
+    except ConfigNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"embedder config not found: {name}") from e
+    return {"status": "deleted", "name": name}
+
+
+@router.get(
+    "/rerankers/configs",
+    response_model=list[RerankerConfigItem],
+    summary="列出所有 reranker 配置（含完整字段，管理用）",
+)
+async def list_reranker_configs_endpoint(
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> list[RerankerConfigItem]:
+    loaded = _loaded_reranker_names()
+    return [
+        _reranker_item(n, raw, loaded)
+        for n, raw in config_store.list_reranker_configs_raw().items()
+    ]
+
+
+@router.post(
+    "/rerankers/configs",
+    response_model=RerankerConfigItem,
+    status_code=201,
+    summary="新建 reranker 配置",
+)
+async def create_reranker_config_endpoint(
+    payload: RerankerConfigCreate,
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> RerankerConfigItem:
+    raw = {
+        "provider": payload.provider,
+        "protocol": payload.protocol,
+        "model_name": payload.model_name,
+        "top_k": payload.top_k,
+        "description": payload.description,
+        "extra": payload.extra,
+    }
+    try:
+        config_store.create_reranker_config(payload.name, raw)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return _reranker_item(payload.name, raw, _loaded_reranker_names())
+
+
+@router.put(
+    "/rerankers/configs/{name}",
+    response_model=RerankerConfigItem,
+    summary="更新 reranker 配置",
+)
+async def update_reranker_config_endpoint(
+    name: str,
+    payload: RerankerConfigUpdate,
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> RerankerConfigItem:
+    patch = payload.model_dump(exclude_unset=True)
+    try:
+        merged = config_store.update_reranker_config(name, patch)
+    except ConfigNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"reranker config not found: {name}") from e
+    return _reranker_item(name, merged, _loaded_reranker_names())
+
+
+@router.delete(
+    "/rerankers/configs/{name}",
+    summary="删除 reranker 配置",
+)
+async def delete_reranker_config_endpoint(
+    name: str,
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> dict:
+    referenced = {
+        cfg.reranker for cfg in get_registry().all_cfgs() if cfg.reranker
+    }
+    if name in referenced:
+        raise HTTPException(
+            status_code=409,
+            detail=f"reranker '{name}' is referenced by KB(s); remove the reference first",
+        )
+    try:
+        config_store.delete_reranker_config(name)
+    except ConfigNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"reranker config not found: {name}") from e
+    return {"status": "deleted", "name": name}
+
+
+# ===== Parser（分块配置）CRUD =====
+
+
+_PARSER_KNOWN_FIELDS = {
+    "strategy",
+    "chunk_size",
+    "chunk_overlap",
+    "paragraph_separator",
+    "buffer_size",
+    "breakpoint_percentile_threshold",
+    "separator",
+    "use_chinese_splitter",
+}
+
+
+def _parser_item(name: str, raw: dict) -> ParserConfigItem:
+    """把 yaml 原始 dict 转成 ParserConfigItem（已知字段提升，其余归 extra）。"""
+    return ParserConfigItem(
+        name=name,
+        strategy=str(raw.get("strategy", "sentence")),
+        chunk_size=int(raw.get("chunk_size", 512)),
+        chunk_overlap=int(raw.get("chunk_overlap", 50)),
+        paragraph_separator=str(raw.get("paragraph_separator", "\n\n")),
+        buffer_size=raw.get("buffer_size"),
+        breakpoint_percentile_threshold=raw.get("breakpoint_percentile_threshold"),
+        extra={k: v for k, v in raw.items() if k not in _PARSER_KNOWN_FIELDS},
+    )
+
+
+def _parser_raw(payload: ParserConfigCreate | ParserConfigUpdate, is_create: bool) -> dict:
+    """把请求体转成 yaml 写入用的 dict（展开 extra）。"""
+    data = payload.model_dump(exclude_unset=not is_create)
+    extra = data.pop("extra", None) or {}
+    # 过滤 None 值（update 时未传的字段不覆盖）
+    out = {k: v for k, v in data.items() if v is not None}
+    out.update(extra)
+    return out
+
+
+@router.get(
+    "/parsers/configs",
+    response_model=list[ParserConfigItem],
+    summary="列出所有 parser 配置（含完整字段，管理用）",
+)
+async def list_parser_configs_endpoint(
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> list[ParserConfigItem]:
+    return [
+        _parser_item(n, raw)
+        for n, raw in config_store.list_parser_configs_raw().items()
+    ]
+
+
+@router.post(
+    "/parsers/configs",
+    response_model=ParserConfigItem,
+    status_code=201,
+    summary="新建 parser 配置",
+)
+async def create_parser_config_endpoint(
+    payload: ParserConfigCreate,
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> ParserConfigItem:
+    if payload.strategy not in ("whole", "sentence", "semantic", "token"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid strategy: {payload.strategy}; expected whole/sentence/semantic/token",
+        )
+    raw = _parser_raw(payload, is_create=True)
+    try:
+        config_store.create_parser_config(payload.name, raw)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return _parser_item(payload.name, raw)
+
+
+@router.put(
+    "/parsers/configs/{name}",
+    response_model=ParserConfigItem,
+    summary="更新 parser 配置",
+)
+async def update_parser_config_endpoint(
+    name: str,
+    payload: ParserConfigUpdate,
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> ParserConfigItem:
+    patch = _parser_raw(payload, is_create=False)
+    if "strategy" in patch and patch["strategy"] not in (
+        "whole",
+        "sentence",
+        "semantic",
+        "token",
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid strategy: {patch['strategy']}",
+        )
+    try:
+        merged = config_store.update_parser_config(name, patch)
+    except ConfigNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"parser config not found: {name}") from e
+    return _parser_item(name, merged)
+
+
+@router.delete(
+    "/parsers/configs/{name}",
+    summary="删除 parser 配置",
+)
+async def delete_parser_config_endpoint(
+    name: str,
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> dict:
+    try:
+        config_store.delete_parser_config(name)
+    except ConfigNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"parser config not found: {name}") from e
+    return {"status": "deleted", "name": name}
 
 
 @router.post(
@@ -1131,7 +1484,9 @@ async def search_kb_admin(
     """
     body = await request.json()
     query = body.get("query", "")
-    top_k = int(body.get("top_k", 5))
+    raw_top_k = body.get("top_k")
+    # top_k 可为 null（表示"跟随 reranker 配置"）
+    top_k = int(raw_top_k) if raw_top_k is not None else None
     use_rerank = bool(body.get("use_rerank", True))
     filter_expr = body.get("filter_expr")
     reranker_name = body.get("reranker_name")  # 可选，覆盖 KB 默认 reranker
