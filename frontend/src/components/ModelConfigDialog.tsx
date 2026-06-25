@@ -50,17 +50,74 @@ interface Props {
   onSaved: () => void;
 }
 
+// ===== 带描述的选项列表 =====
+
 const EMBEDDER_PROVIDERS = [
-  "mock",
-  "openai",
-  "bge",
-  "bge_zh",
-  "fastembed",
-  "azure_openai",
+  { value: "mock", desc: "占位实现，不依赖外部服务" },
+  { value: "openai", desc: "OpenAI Embeddings API" },
+  { value: "bge", desc: "BGE 本地模型（需 sentence-transformers）" },
+  { value: "bge_zh", desc: "BGE 中文模型（自动加 query 前缀）" },
+  { value: "fastembed", desc: "FastEmbed 本地推理（需 fastembed 库）" },
+  { value: "azure_openai", desc: "Azure OpenAI Embeddings API" },
 ];
-const RERANKER_PROVIDERS = ["none", "mock", "http", "bge", "cohere"];
-const RERANKER_PROTOCOLS = ["tei", "jina", "cohere_compat", "openai"];
-const PARSER_STRATEGIES = ["whole", "sentence", "semantic", "token"];
+
+const RERANKER_PROVIDERS = [
+  { value: "none", desc: "不做重排，仅截断到 top_k" },
+  { value: "mock", desc: "占位实现，不依赖外部服务" },
+  { value: "http", desc: "HTTP 远程服务（TEI / Jina 等）" },
+  { value: "bge", desc: "BGE 本地重排模型（需 sentence-transformers）" },
+  { value: "cohere", desc: "Cohere Rerank API" },
+];
+
+const RERANKER_PROTOCOLS = [
+  { value: "tei", desc: "HuggingFace TEI 推理服务" },
+  { value: "jina", desc: "Jina Reranker API" },
+  { value: "cohere_compat", desc: "Cohere 兼容接口" },
+  { value: "openai", desc: "OpenAI 兼容接口" },
+];
+
+const PARSER_STRATEGIES = [
+  { value: "whole", desc: "整篇不切，适合短文档" },
+  { value: "sentence", desc: "按句子切，适合大多数场景" },
+  { value: "semantic", desc: "按语义切（需 embed_model，更智能）" },
+  { value: "token", desc: "按 token 数切，适合精确控制大小" },
+];
+
+// ===== 动态 placeholder / helper =====
+
+function embedderModelNameHint(provider: string) {
+  switch (provider) {
+    case "openai":
+      return { placeholder: "text-embedding-3-small", hint: "API 模型 ID" };
+    case "azure_openai":
+      return { placeholder: "text-embedding-3-small", hint: "Azure 部署的模型 ID" };
+    case "bge":
+      return { placeholder: "BAAI/bge-m3", hint: "本地模型路径或 HuggingFace ID" };
+    case "bge_zh":
+      return { placeholder: "BAAI/bge-large-zh-v1.5", hint: "本地中文模型路径或 HuggingFace ID" };
+    case "fastembed":
+      return { placeholder: "BAAI/bge-small-en-v1.5", hint: "FastEmbed 支持的模型名" };
+    default:
+      return { placeholder: "（mock 模型，可留空）", hint: "模型标识" };
+  }
+}
+
+function rerankerModelNameHint(provider: string) {
+  switch (provider) {
+    case "http":
+      return { placeholder: "（HTTP 服务自动识别，可留空）", hint: "HTTP 服务使用的模型标识" };
+    case "bge":
+      return { placeholder: "BAAI/bge-reranker-base", hint: "本地重排模型路径或 HuggingFace ID" };
+    case "cohere":
+      return { placeholder: "rerank-v3.5", hint: "Cohere API 模型 ID" };
+    default:
+      return { placeholder: "（可留空）", hint: "模型标识" };
+  }
+}
+
+function chunkSizeUnit(strategy: string) {
+  return strategy === "token" ? "token" : "字符";
+}
 
 export default function ModelConfigDialog({
   open,
@@ -111,7 +168,7 @@ export default function ModelConfigDialog({
       } else if (kind === "reranker") {
         const r = initial as RerankerConfigItem;
         setProvider(r.provider);
-        setProtocol(r.protocol || "tei");
+        setProtocol(r.protocol);
         setModelName(r.model_name);
         setTopK(String(r.top_k));
         setDescription(r.description);
@@ -156,6 +213,17 @@ export default function ModelConfigDialog({
     }
   }, [open, initial, kind]);
 
+  // 当 provider 变化时，自动调整 protocol（protocol 仅 provider=http 时生效）
+  useEffect(() => {
+    if (kind === "reranker") {
+      if (provider === "http" && !protocol) {
+        setProtocol("tei");
+      } else if (provider !== "http") {
+        setProtocol("");
+      }
+    }
+  }, [provider]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function parseExtra(): Record<string, unknown> | null {
     try {
       const parsed = JSON.parse(extraText);
@@ -175,7 +243,7 @@ export default function ModelConfigDialog({
       // 用户输入的是 JSON 字符串形式（如 "\n\n"），解析成实际字符
       return JSON.parse(paragraphSeparator);
     } catch {
-      toast.error("段落分隔符需为 JSON 字符串，如 \"\\n\\n\"");
+      toast.error('段落分隔符需为 JSON 字符串，如 "\\n\\n"');
       return null;
     }
   }
@@ -222,10 +290,12 @@ export default function ModelConfigDialog({
           setSaving(false);
           return;
         }
+        // protocol 仅 provider=http 时有效，其余清空
+        const effectiveProtocol = provider === "http" ? protocol : "";
         if (isEdit) {
           await client.updateRerankerConfig(name, {
             provider,
-            protocol,
+            protocol: effectiveProtocol,
             model_name: modelName,
             top_k: Number(topK) || 5,
             description,
@@ -235,7 +305,7 @@ export default function ModelConfigDialog({
           await client.createRerankerConfig({
             name: name.trim(),
             provider,
-            protocol,
+            protocol: effectiveProtocol,
             model_name: modelName,
             top_k: Number(topK) || 5,
             description,
@@ -266,7 +336,7 @@ export default function ModelConfigDialog({
           await client.createParserConfig({ name: name.trim(), ...payload } as any);
         }
       }
-      toast.success(isEdit ? "已更新" : "已创建");
+      toast.success(isEdit ? "已更新，配置已热加载生效" : "已创建，配置已热加载生效");
       onSaved();
       onOpenChange(false);
     } catch (e) {
@@ -290,6 +360,10 @@ export default function ModelConfigDialog({
         ? "Reranker 模型：对向量召回的候选做二次重排，提升检索精度。"
         : "Parser 分块配置：把文档切成多个 chunk 入库，影响检索粒度。";
 
+  const modelNameHint = kind === "embedder"
+    ? embedderModelNameHint(provider)
+    : rerankerModelNameHint(provider);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
@@ -304,13 +378,17 @@ export default function ModelConfigDialog({
             <code className="rounded bg-bg-tertiary px-1 font-mono text-[10px]">
               {yamlFile}
             </code>
-            ，修改后需重启服务生效。
+            ，修改后立即热加载生效。
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
+          {/* ---- 配置名 ---- */}
           <div className="space-y-1">
-            <Label className="text-xs">配置名</Label>
+            <Label className="text-xs">
+              配置名
+              <span className="ml-1 font-normal text-fg-muted">（字母开头，仅字母/数字/下划线）</span>
+            </Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -326,51 +404,60 @@ export default function ModelConfigDialog({
             />
           </div>
 
-          {/* Embedder / Reranker 公共字段 */}
+          {/* ---- Embedder / Reranker 公共字段 ---- */}
           {kind !== "parser" && (
             <>
               <div className="grid grid-cols-2 gap-3">
+                {/* Provider */}
                 <div className="space-y-1">
-                  <Label className="text-xs">
-                    Provider
-                    <span className="ml-1 font-normal text-fg-muted">（实现类型）</span>
-                  </Label>
+                  <Label className="text-xs">Provider</Label>
                   <Select value={provider} onValueChange={setProvider}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {providers.map((p) => (
-                        <SelectItem key={p} value={p}>
-                          <span className="font-mono text-xs">{p}</span>
+                        <SelectItem key={p.value} value={p.value}>
+                          <span className="font-mono text-xs">{p.value}</span>
+                          <span className="ml-1 text-xs text-fg-muted">— {p.desc}</span>
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
+                {/* Protocol (reranker) 或 Dimension (embedder) */}
                 {kind === "reranker" ? (
                   <div className="space-y-1">
                     <Label className="text-xs">
                       Protocol
-                      <span className="ml-1 font-normal text-fg-muted">（仅 http）</span>
+                      <span className="ml-1 font-normal text-fg-muted">
+                        {provider !== "http"
+                          ? "（仅 provider=http 时生效）"
+                          : "（HTTP 服务协议）"}
+                      </span>
                     </Label>
-                    <Select
-                      value={protocol}
-                      onValueChange={setProtocol}
-                      disabled={provider !== "http"}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {RERANKER_PROTOCOLS.map((p) => (
-                          <SelectItem key={p} value={p}>
-                            <span className="font-mono text-xs">{p}</span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {provider !== "http" ? (
+                      <Input
+                        value="不适用"
+                        disabled
+                        className="font-mono text-sm text-fg-muted"
+                      />
+                    ) : (
+                      <Select value={protocol} onValueChange={setProtocol}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="选择协议" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {RERANKER_PROTOCOLS.map((p) => (
+                            <SelectItem key={p.value} value={p.value}>
+                              <span className="font-mono text-xs">{p.value}</span>
+                              <span className="ml-1 text-xs text-fg-muted">— {p.desc}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-1">
@@ -383,51 +470,65 @@ export default function ModelConfigDialog({
                       value={dimension}
                       onChange={(e) => setDimension(e.target.value)}
                       className="font-mono text-sm"
+                      min={0}
                     />
+                    <p className="text-xs text-orange-500">
+                      ⚠️ 维度必须与向量库 collection 一致，修改会破坏已有数据
+                    </p>
                   </div>
                 )}
               </div>
 
+              {/* 模型名称 */}
               <div className="space-y-1">
-                <Label className="text-xs">模型名称</Label>
+                <Label className="text-xs">
+                  模型名称
+                  <span className="ml-1 font-normal text-fg-muted">（{modelNameHint.hint}）</span>
+                </Label>
                 <Input
                   value={modelName}
                   onChange={(e) => setModelName(e.target.value)}
-                  placeholder="BAAI/bge-reranker-base"
+                  placeholder={modelNameHint.placeholder}
                   className="font-mono text-sm"
                 />
               </div>
 
+              {/* Batch Size / Top K + 备注 */}
               <div className="grid grid-cols-2 gap-3">
                 {kind === "embedder" ? (
                   <div className="space-y-1">
                     <Label className="text-xs">
                       Batch Size
-                      <span className="ml-1 font-normal text-fg-muted">（批推理数）</span>
+                      <span className="ml-1 font-normal text-fg-muted">（每次推理处理的文本条数）</span>
                     </Label>
                     <Input
                       type="number"
                       value={batchSize}
                       onChange={(e) => setBatchSize(e.target.value)}
                       className="font-mono text-sm"
+                      min={1}
                     />
                   </div>
                 ) : (
                   <div className="space-y-1">
                     <Label className="text-xs">
                       Top K
-                      <span className="ml-1 font-normal text-fg-muted">（重排后保留数）</span>
+                      <span className="ml-1 font-normal text-fg-muted">（重排后最终返回条数）</span>
                     </Label>
                     <Input
                       type="number"
                       value={topK}
                       onChange={(e) => setTopK(e.target.value)}
                       className="font-mono text-sm"
+                      min={1}
                     />
+                    <p className="text-xs text-fg-muted">
+                      向量库实际召回数 = top_k × over_fetch 倍数
+                    </p>
                   </div>
                 )}
                 <div className="space-y-1">
-                  <Label className="text-xs">描述</Label>
+                  <Label className="text-xs">备注</Label>
                   <Input
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
@@ -439,10 +540,11 @@ export default function ModelConfigDialog({
             </>
           )}
 
-          {/* Parser 字段 */}
+          {/* ---- Parser 字段 ---- */}
           {kind === "parser" && (
             <>
               <div className="grid grid-cols-2 gap-3">
+                {/* Strategy */}
                 <div className="space-y-1">
                   <Label className="text-xs">
                     Strategy
@@ -454,44 +556,56 @@ export default function ModelConfigDialog({
                     </SelectTrigger>
                     <SelectContent>
                       {PARSER_STRATEGIES.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          <span className="font-mono text-xs">{s}</span>
+                        <SelectItem key={s.value} value={s.value}>
+                          <span className="font-mono text-xs">{s.value}</span>
+                          <span className="ml-1 text-xs text-fg-muted">— {s.desc}</span>
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
+                {/* Chunk Size */}
                 <div className="space-y-1">
                   <Label className="text-xs">
                     Chunk Size
-                    <span className="ml-1 font-normal text-fg-muted">（块大小）</span>
+                    <span className="ml-1 font-normal text-fg-muted">
+                      （{chunkSizeUnit(strategy)}数，越大粒度越粗、召回更多上下文）
+                    </span>
                   </Label>
                   <Input
                     type="number"
                     value={chunkSize}
                     onChange={(e) => setChunkSize(e.target.value)}
                     className="font-mono text-sm"
+                    min={1}
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
+                {/* Chunk Overlap */}
                 <div className="space-y-1">
                   <Label className="text-xs">
                     Chunk Overlap
-                    <span className="ml-1 font-normal text-fg-muted">（块重叠）</span>
+                    <span className="ml-1 font-normal text-fg-muted">
+                      （{chunkSizeUnit(strategy)}数重叠，建议约为 chunk_size 的 10%）
+                    </span>
                   </Label>
                   <Input
                     type="number"
                     value={chunkOverlap}
                     onChange={(e) => setChunkOverlap(e.target.value)}
                     className="font-mono text-sm"
+                    min={0}
                   />
                 </div>
+                {/* Paragraph Separator */}
                 <div className="space-y-1">
                   <Label className="text-xs">
                     Paragraph Separator
-                    <span className="ml-1 font-normal text-fg-muted">（JSON 字符串）</span>
+                    <span className="ml-1 font-normal text-fg-muted">
+                      （JSON 格式字符串，如 "\\n\\n" 代表双换行）
+                    </span>
                   </Label>
                   <Input
                     value={paragraphSeparator}
@@ -502,46 +616,62 @@ export default function ModelConfigDialog({
                 </div>
               </div>
 
+              {/* semantic 策略额外参数 */}
               {strategy === "semantic" && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">
-                      Buffer Size
-                      <span className="ml-1 font-normal text-fg-muted">（滑动窗口，可空）</span>
-                    </Label>
-                    <Input
-                      type="number"
-                      value={bufferSize}
-                      onChange={(e) => setBufferSize(e.target.value)}
-                      placeholder="留空用默认"
-                      className="font-mono text-sm"
-                    />
+                <>
+                  <p className="text-xs text-fg-muted">
+                    semantic 策略需要以下额外参数来控制语义切分行为：
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">
+                        Buffer Size
+                        <span className="ml-1 font-normal text-fg-muted">
+                          （合并缓冲句子数，越大块越连贯；1=保守，5=激进，可空）
+                        </span>
+                      </Label>
+                      <Input
+                        type="number"
+                        value={bufferSize}
+                        onChange={(e) => setBufferSize(e.target.value)}
+                        placeholder="留空用默认"
+                        className="font-mono text-sm"
+                        min={0}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">
+                        Breakpoint Percentile
+                        <span className="ml-1 font-normal text-fg-muted">
+                          （语义跳变阈值，越低切越碎；60=激进，95=默认，99=极保守，可空）
+                        </span>
+                      </Label>
+                      <Input
+                        type="number"
+                        value={breakpointPercentile}
+                        onChange={(e) => setBreakpointPercentile(e.target.value)}
+                        placeholder="留空用默认"
+                        className="font-mono text-sm"
+                        min={0}
+                        max={100}
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">
-                      Breakpoint Percentile
-                      <span className="ml-1 font-normal text-fg-muted">（0-100，可空）</span>
-                    </Label>
-                    <Input
-                      type="number"
-                      value={breakpointPercentile}
-                      onChange={(e) => setBreakpointPercentile(e.target.value)}
-                      placeholder="留空用默认"
-                      className="font-mono text-sm"
-                    />
-                  </div>
-                </div>
+                </>
               )}
             </>
           )}
 
+          {/* ---- Extra 参数 ---- */}
           <div className="space-y-1">
             <Label className="text-xs">
               Extra 参数（JSON）
               <span className="ml-1 font-normal text-fg-muted">
-                {kind === "parser"
-                  ? "separator / use_chinese_splitter 等"
-                  : "base_url / api_key / timeout 等"}
+                {kind === "embedder"
+                  ? "base_url / api_key / timeout / use_fp16 等，支持 ${VAR} 环境变量"
+                  : kind === "reranker"
+                    ? "base_url / api_key / truncate_input_tokens / batch_size 等，支持 ${VAR} 环境变量"
+                    : "separator / use_chinese_splitter（中文建议开启）等"}
               </span>
             </Label>
             <Textarea

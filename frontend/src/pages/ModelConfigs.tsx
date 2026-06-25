@@ -6,7 +6,7 @@
  *  - 每个 Tab：表格（name / provider / model / 关键参数 / 状态 / 操作）+ 新建按钮
  *  - 操作：编辑（弹窗）/ 删除（确认）
  *
- * 配置改完需重启服务生效（运行时实例不热更新，避免影响在服务的 KB）。
+ * 配置修改后立即热加载生效（写 YAML → 刷新运行时实例），无需重启服务。
  */
 import { useEffect, useState } from "react";
 import {
@@ -141,7 +141,7 @@ export default function ModelConfigs() {
           模型配置
         </h2>
         <p className="text-xs text-fg-muted">
-          管理 Embedding、Reranker 模型与 Parser 分块配置（写 YAML）。修改后需重启服务生效。
+          管理 Embedding、Reranker 模型与 Parser 分块配置。修改后立即热加载生效，无需重启服务。
         </p>
       </div>
 

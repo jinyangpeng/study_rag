@@ -523,6 +523,75 @@ class KnowledgeBaseManager:
             return None
         return self.get_reranker(cfg.reranker)
 
+    # ---- 热加载（配置修改后即时刷新运行时实例） ----
+
+    def reload_embedder(self, name: str) -> bool:
+        """热加载单个 embedder（从 YAML 重新读取配置并替换实例）。
+
+        配置不存在时移除旧实例；依赖缺失时 warn 并不替换（保留旧实例或保持空缺）。
+        Returns: True=成功替换, False=配置不存在或加载失败
+        """
+        from . import config_store
+
+        try:
+            raw = config_store.get_embedder_config_raw(name)
+        except config_store.ConfigNotFoundError:
+            self._embedders.pop(name, None)
+            logger.info("embedder_hot_remove", name=name, reason="config_deleted")
+            return False
+
+        try:
+            cfg = EmbeddingConfig.from_raw(raw)
+            instance = create_embedder(cfg)
+            self._embedders[name] = instance
+            # 清除可能依赖此 embedder 的 llamaindex 引擎缓存
+            if hasattr(self, "_li_engines"):
+                self._li_engines.clear()
+            logger.info("embedder_hot_reload_success", name=name)
+            return True
+        except (ImportError, ValueError) as e:
+            logger.warning("embedder_hot_reload_failed", name=name, error=str(e))
+            return False
+
+    def reload_reranker(self, name: str) -> bool:
+        """热加载单个 reranker（从 YAML 重新读取配置并替换实例）。
+
+        Returns: True=成功替换, False=配置不存在或加载失败
+        """
+        from . import config_store
+        from ..capabilities.embedding.base import _resolve_env
+
+        try:
+            raw = config_store.get_reranker_config_raw(name)
+        except config_store.ConfigNotFoundError:
+            self._rerankers.pop(name, None)
+            logger.info("reranker_hot_remove", name=name, reason="config_deleted")
+            return False
+
+        try:
+            cfg = RerankerConfig(**_resolve_env(raw))
+            instance = create_reranker(cfg)
+            self._rerankers[name] = instance
+            if hasattr(self, "_li_engines"):
+                self._li_engines.clear()
+            logger.info("reranker_hot_reload_success", name=name)
+            return True
+        except (ImportError, ValueError) as e:
+            logger.warning("reranker_hot_reload_failed", name=name, error=str(e))
+            return False
+
+    def remove_embedder(self, name: str) -> None:
+        """移除 embedder 实例（配置删除时调用）。"""
+        self._embedders.pop(name, None)
+        if hasattr(self, "_li_engines"):
+            self._li_engines.clear()
+
+    def remove_reranker(self, name: str) -> None:
+        """移除 reranker 实例（配置删除时调用）。"""
+        self._rerankers.pop(name, None)
+        if hasattr(self, "_li_engines"):
+            self._li_engines.clear()
+
     # ---- LlamaIndex 检索路径 ----
 
     def get_llamaindex_engine(self, kb_id: str) -> LlamaIndexRetrievalEngine:
@@ -815,6 +884,39 @@ def reset_manager_singleton() -> None:
     """测试用：重置 manager 单例。"""
     global _manager_singleton
     _manager_singleton = None
+
+
+# ===== 热加载辅助（供 admin API 调用） =====
+
+
+def hot_reload_embedder(name: str) -> bool:
+    """热加载 embedder（写入 YAML 后立即刷新运行时实例）。"""
+    if _manager_singleton is None:
+        logger.warning("hot_reload_embedder_no_manager", name=name)
+        return False
+    return _manager_singleton.reload_embedder(name)
+
+
+def hot_reload_reranker(name: str) -> bool:
+    """热加载 reranker（写入 YAML 后立即刷新运行时实例）。"""
+    if _manager_singleton is None:
+        logger.warning("hot_reload_reranker_no_manager", name=name)
+        return False
+    return _manager_singleton.reload_reranker(name)
+
+
+def hot_remove_embedder(name: str) -> None:
+    """移除 embedder 实例（配置删除时调用）。"""
+    if _manager_singleton is None:
+        return
+    _manager_singleton.remove_embedder(name)
+
+
+def hot_remove_reranker(name: str) -> None:
+    """移除 reranker 实例（配置删除时调用）。"""
+    if _manager_singleton is None:
+        return
+    _manager_singleton.remove_reranker(name)
 
 
 def _load_embedding_configs() -> dict[str, EmbeddingConfig]:

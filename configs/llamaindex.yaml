@@ -1,77 +1,61 @@
-# LlamaIndex 整合配置
-#
-# 同一实例可有多种 NodeParser，知识库通过 parser_strategy 字段选用
-# 不同 KB 可以用不同的切块策略
-#
-# 安装：pip install llama-index-core
-#
-# 切块策略对比：
-#   whole         整篇文档作为 1 个节点（最简单，admin API 默认）
-#   sentence      按句子/段落切分（推荐，平衡精度与召回）
-#   token         按 token 切分（适合英文 / tokenizer-aware）
-#   semantic      按语义相似度切分（需 embed_model，质量高，速度慢）
-
 parsers:
-  # 整篇不切（最简）
   whole:
     strategy: whole
-
-  # 句子级切分（默认推荐）
   sentence_512:
     strategy: sentence
     chunk_size: 512
     chunk_overlap: 50
-    paragraph_separator: "\n\n"
+    paragraph_separator: '
 
+
+      '
   sentence_1024:
     strategy: sentence
     chunk_size: 1024
     chunk_overlap: 100
-    paragraph_separator: "\n\n"
+    paragraph_separator: '
 
-  # 短段落（适合问答型 KB）
+
+      '
   short_paragraph:
     strategy: sentence
     chunk_size: 256
     chunk_overlap: 30
-    paragraph_separator: "\n"
+    paragraph_separator: '
 
-  # Token 级（适合英文 / 代码）
+      '
   token_512:
     strategy: token
     chunk_size: 512
     chunk_overlap: 50
-
-  # 语义级（质量优先，速度慢）— 三种敏感度可选
-  # 切块数量：conservative < semantic < aggressive
   semantic:
     strategy: semantic
     chunk_size: 512
     buffer_size: 1
-    breakpoint_percentile_threshold: 95  # LI 默认，极保守
-
+    breakpoint_percentile_threshold: 95
   semantic_aggressive:
     strategy: semantic
     chunk_size: 512
     buffer_size: 5
-    breakpoint_percentile_threshold: 60  # 20% 语义跳变就切
-
+    breakpoint_percentile_threshold: 60
   semantic_conservative:
     strategy: semantic
     chunk_size: 512
     buffer_size: 1
-    breakpoint_percentile_threshold: 99  # 几乎不切
+    breakpoint_percentile_threshold: 99
+  sentence_256:
+    name: sentence_256
+    strategy: token
+    chunk_size: 128
+    chunk_overlap: 10
+    paragraph_separator: '
 
-# 全局 LlamaIndex 设置
+
+      '
 settings:
-  # 是否启用 LlamaIndex 检索路径（false 时 get_llamaindex_engine 抛错）
   enabled: true
-
-  # 检索时 candidate_k 倍数
   over_fetch: 4
-
-  # LLM 占位（可选，未配置时不使用 response synthesis）
   llm:
-    provider: none  # none / openai / mock
-    model: ""
-    api_key: ""
+    provider: none
+    model: ''
+    api_key: ''

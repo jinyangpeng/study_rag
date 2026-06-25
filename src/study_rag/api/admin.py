@@ -51,6 +51,10 @@ from ..knowledge_bases.manager import (
     KnowledgeBaseSummary,
     build_default_manager,
     delete_kb_collection,
+    hot_reload_embedder,
+    hot_reload_reranker,
+    hot_remove_embedder,
+    hot_remove_reranker,
     list_available_embedders,
     list_available_rerankers,
 )
@@ -391,11 +395,11 @@ async def list_rerankers_endpoint(
     return [RerankerInfo(**r) for r in list_available_rerankers()]
 
 
-# ===== Embedder / Reranker 配置管理（CRUD，写 YAML） =====
+# ===== Embedder / Reranker 配置管理（CRUD，写 YAML + 热加载） =====
 #
 # 与 list 接口（只读，给下拉用）的区别：这组接口直接读写 embeddings.yaml /
-# reranker.yaml，供「模型配置」管理页用。改完需重启或重新加载才能生效
-# （运行时已加载的实例不会热更新，避免影响正在服务的 KB）。
+# reranker.yaml，供「模型配置」管理页用。写入 YAML 后立即热加载到运行时，
+# 新配置即时生效，无需重启服务。
 
 
 def _embedder_item(name: str, raw: dict, loaded_names: set[str]) -> EmbedderConfigItem:
@@ -477,6 +481,8 @@ async def create_embedder_config_endpoint(
         config_store.create_embedder_config(payload.name, raw)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
+    # 热加载：立即将新配置加载到运行时
+    hot_reload_embedder(payload.name)
     return _embedder_item(payload.name, raw, _loaded_embedder_names())
 
 
@@ -496,6 +502,8 @@ async def update_embedder_config_endpoint(
         merged = config_store.update_embedder_config(name, patch)
     except ConfigNotFoundError as e:
         raise HTTPException(status_code=404, detail=f"embedder config not found: {name}") from e
+    # 热加载：刷新运行时实例
+    hot_reload_embedder(name)
     return _embedder_item(name, merged, _loaded_embedder_names())
 
 
@@ -521,6 +529,8 @@ async def delete_embedder_config_endpoint(
         config_store.delete_embedder_config(name)
     except ConfigNotFoundError as e:
         raise HTTPException(status_code=404, detail=f"embedder config not found: {name}") from e
+    # 热移除：从运行时移除实例
+    hot_remove_embedder(name)
     return {"status": "deleted", "name": name}
 
 
@@ -563,6 +573,8 @@ async def create_reranker_config_endpoint(
         config_store.create_reranker_config(payload.name, raw)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
+    # 热加载：立即将新配置加载到运行时
+    hot_reload_reranker(payload.name)
     return _reranker_item(payload.name, raw, _loaded_reranker_names())
 
 
@@ -582,6 +594,8 @@ async def update_reranker_config_endpoint(
         merged = config_store.update_reranker_config(name, patch)
     except ConfigNotFoundError as e:
         raise HTTPException(status_code=404, detail=f"reranker config not found: {name}") from e
+    # 热加载：刷新运行时实例
+    hot_reload_reranker(name)
     return _reranker_item(name, merged, _loaded_reranker_names())
 
 
@@ -606,6 +620,8 @@ async def delete_reranker_config_endpoint(
         config_store.delete_reranker_config(name)
     except ConfigNotFoundError as e:
         raise HTTPException(status_code=404, detail=f"reranker config not found: {name}") from e
+    # 热移除：从运行时移除实例
+    hot_remove_reranker(name)
     return {"status": "deleted", "name": name}
 
 
@@ -684,6 +700,12 @@ async def create_parser_config_endpoint(
         config_store.create_parser_config(payload.name, raw)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
+    # 热加载：刷新 parser 注册表
+    try:
+        from ..capabilities.llamaindex import get_parser_registry
+        get_parser_registry(force_reload=True)
+    except ImportError:
+        log.warning("parser_hot_reload_skipped", reason="llama-index-core not installed")
     return _parser_item(payload.name, raw)
 
 
@@ -713,6 +735,12 @@ async def update_parser_config_endpoint(
         merged = config_store.update_parser_config(name, patch)
     except ConfigNotFoundError as e:
         raise HTTPException(status_code=404, detail=f"parser config not found: {name}") from e
+    # 热加载：刷新 parser 注册表
+    try:
+        from ..capabilities.llamaindex import get_parser_registry
+        get_parser_registry(force_reload=True)
+    except ImportError:
+        log.warning("parser_hot_reload_skipped", reason="llama-index-core not installed")
     return _parser_item(name, merged)
 
 
@@ -729,6 +757,12 @@ async def delete_parser_config_endpoint(
         config_store.delete_parser_config(name)
     except ConfigNotFoundError as e:
         raise HTTPException(status_code=404, detail=f"parser config not found: {name}") from e
+    # 烱加载：刷新 parser 注册表
+    try:
+        from ..capabilities.llamaindex import get_parser_registry
+        get_parser_registry(force_reload=True)
+    except ImportError:
+        log.warning("parser_hot_reload_skipped", reason="llama-index-core not installed")
     return {"status": "deleted", "name": name}
 
 
