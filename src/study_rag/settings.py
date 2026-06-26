@@ -38,6 +38,12 @@ class ServerSettings(BaseSettings):
     search_breaker_threshold: int = 10
     search_breaker_timeout_s: float = 20.0
 
+    # ---- MCP 鉴权（api_key 强制校验） ----
+    # 默认 false：PermissionResolver 占位实现允许任意 api_key（含空串），本地开发零摩擦
+    # 设为 true 时：非空 api_key 必须能在 resolve() 中命中（占位实现下也即非空即可）
+    # 真实接入 JWT/OAuth 后此开关生效，未命中则 PermissionDenied
+    mcp_require_api_key: bool = False
+
     model_config = SettingsConfigDict(
         env_prefix="STUDY_RAG_",
         env_file=".env",

@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+venv*/
+.pytest_cache/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+.vite/
+src/study_rag/web/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Env / Secrets
+.env
+.env.local
+.env.*.local
+
+# Git
+.git/
+.gitignore
+
+# Docker
+docker/docker-compose.override.yml
+
+# Runtime state (regenerated)
+data/docs_index.json
+data/test_documents/
+
+# Project tooling / scratch
+.codebuddy/
+docs/superpowers/
+temp_check.py
+*.log
+*.tmp

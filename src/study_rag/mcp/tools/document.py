@@ -96,9 +96,9 @@ async def _check_write(ctx: MCPContext, api_key: str, kb_id: str) -> Any:
 
 
 async def get_document(
-    api_key: str,
-    kb_id: str,
-    doc_id: str,
+    api_key: str = "",
+    kb_id: str = "",
+    doc_id: str = "",
     ctx: MCPContext | None = None,
 ) -> Document:
     """获取指定文档的完整内容。
@@ -141,8 +141,8 @@ async def get_document(
 
 
 async def list_documents(
-    api_key: str,
-    kb_id: str,
+    api_key: str = "",
+    kb_id: str = "",
     include_content: bool = False,
     limit: int = 100,
     offset: int = 0,
@@ -195,11 +195,11 @@ async def list_documents(
 
 
 async def add_document(
-    api_key: str,
-    kb_id: str,
-    doc_id: str,
-    title: str,
-    content: str,
+    api_key: str = "",
+    kb_id: str = "",
+    doc_id: str = "",
+    title: str = "",
+    content: str = "",
     source: str | None = None,
     metadata: dict | None = None,
     overwrite: bool = False,
@@ -268,11 +268,11 @@ async def add_document(
 
 
 async def add_document_chunked(
-    api_key: str,
-    kb_id: str,
-    doc_id: str,
-    title: str,
-    content: str,
+    api_key: str = "",
+    kb_id: str = "",
+    doc_id: str = "",
+    title: str = "",
+    content: str = "",
     source: str | None = None,
     metadata: dict | None = None,
     parser_config: dict | None = None,
@@ -341,9 +341,9 @@ async def add_document_chunked(
 
 
 async def add_documents_batch(
-    api_key: str,
-    kb_id: str,
-    documents: list[dict],
+    api_key: str = "",
+    kb_id: str = "",
+    documents: list[dict] | None = None,
     overwrite: bool = False,
     ctx: MCPContext | None = None,
 ) -> list[AddDocumentResult]:
@@ -392,9 +392,9 @@ async def add_documents_batch(
 
 
 async def delete_document(
-    api_key: str,
-    kb_id: str,
-    doc_id: str,
+    api_key: str = "",
+    kb_id: str = "",
+    doc_id: str = "",
     ctx: MCPContext | None = None,
 ) -> DeleteResult:
     """删除指定文档（向量 + meta 一起删）。

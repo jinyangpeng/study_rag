@@ -21,7 +21,41 @@
   `POST /documents/upload`
 - **统一管理面**：FastAPI 提供知识库 CRUD + 健康检查
 
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [部署指南](docs/deployment.md) | Docker Compose、镜像构建、Milvus、生产清单、运维操作 |
+| [配置参考](docs/configuration.md) | 所有 YAML 配置文件、环境变量、provider 对照表 |
+| [本文档](#mcp-tool-完整列表) | MCP Tool 完整 API、客户端示例、错误码 |
+
 ## 快速开始
+
+### Docker Compose（推荐）
+
+```bash
+# 1. 准备环境变量
+cp .env.example .env
+#   按需编辑 .env（至少配置一个 embedding 后端的 API_KEY）
+
+# 2. 构建并启动 admin + mcp
+docker compose -f docker/docker-compose.yml up -d --build
+#   或: just docker-up
+
+# 3. 带 Milvus 向量库一体化启动
+docker compose -f docker/docker-compose.yml --profile vector up -d --build
+#   或: just docker-up-vector
+
+# 端点：
+#   管理 UI      http://localhost:8765/admin/ui/
+#   OpenAPI 文档  http://localhost:8765/docs
+#   MCP 端点      http://localhost:8001/mcp
+#   健康检查      http://localhost:8765/health  /  http://localhost:8001/health
+```
+
+详见 [部署指南](docs/deployment.md)。
+
+### 本地 Python
 
 ```bash
 # 安装依赖
@@ -54,33 +88,59 @@ pwsh scripts/dev.ps1 all-verify # 跑 lint + typecheck + 全 verify
 
 ```
 study_rag/
-├── capabilities/        # 能力层（embedding/vector_store/reranker/llamaindex）
-├── knowledge_bases/     # 知识库管理（registry/manager/models）
+├── capabilities/        # 能力层（embedding/vector_store/reranker/llamaindex/retrieval）
+├── knowledge_bases/     # 知识库管理（registry/manager/models/config_store）
 ├── auth/                # 鉴权（占位实现，含 writable_kbs）
-├── mcp/                 # MCP 服务（10 个 Tool + filter + 错误体系）
+├── mcp/                 # MCP 服务（10 个 Tool + 3 Resource + 2 Prompt + filter）
 ├── api/                 # FastAPI 管理面（admin/health）
-├── mcp_standalone.py    # MCP 独立部署入口
+├── jobs/                # 异步任务（文档切块流水线）
+├── observability/       # 日志(structlog)/指标(Prometheus)/限流/熔断/中间件
+├── web/                 # Admin UI SPA 构建产物挂载（/admin/ui/）
+├── mcp_standalone.py    # MCP 独立部署入口（streamable_http）
 ├── app.py               # Admin REST 入口
-├── settings.py          # 全局配置
-└── configs/             # YAML 配置
-    ├── knowledge_bases.yaml
-    ├── embeddings.yaml
-    ├── vector_store.yaml
-    ├── reranker.yaml
-    ├── llamaindex.yaml
-    └── llm.yaml
+├── settings.py          # 全局配置（pydantic-settings）
+├── frontend/            # React + Vite + shadcn/ui 管理控制台源码
+├── configs/             # YAML 配置（支持 ${ENV_VAR} 占位符）
+│   ├── knowledge_bases.yaml
+│   ├── embeddings.yaml
+│   ├── vector_store.yaml
+│   ├── reranker.yaml
+│   ├── retrieval.yaml
+│   ├── llamaindex.yaml
+│   └── llm.yaml
+├── docker/              # 容器化（Dockerfile + docker-compose + entrypoint）
+├── docs/                # 文档（deployment.md / configuration.md）
+└── scripts/             # 开发脚本（dev.ps1 / inspector.ps1）
 ```
 
-## 配置
+**部署拓扑**（两进程独立扩缩容）：
 
-所有配置位于 `configs/` 目录，支持 `${ENV_VAR}` 占位符。
+```
+  Agent / LLM ──MCP──▶  mcp:8001  ──▶  ┌─ embeddings (OpenAI/BGE/Ollama)
+                                       ├─ rerankers  (BGE/Cohere/TEI)
+  浏览器 ──HTTP──▶  admin:8765 ──▶     └─ vector_store (Milvus/Qdrant/mock)
+    └─ /admin/ui/  (React SPA)
+    └─ /admin/*    (KB/文档 CRUD)
+    └─ /metrics    (Prometheus)
+```
 
-- `knowledge_bases.yaml` - 知识库定义（每 KB 可独立配 embedding / reranker）
-- `embeddings.yaml` - Embedding 多后端（mock / openai / bge / bge-st / fastembed）
-- `vector_store.yaml` - 向量库（mock / milvus / qdrant）
-- `reranker.yaml` - Reranker 多后端（mock / bge / cohere）
-- `llamaindex.yaml` - LlamaIndex NodeParser 配置
-- `llm.yaml` - LLM 客户端配置
+详见 [配置参考](docs/configuration.md)。
+
+## 环境变量
+
+核心变量（完整列表见 [`.env.example`](.env.example) 和 [配置参考](docs/configuration.md#环境变量参考)）：
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `STUDY_RAG_PORT` | `8765` | admin REST 端口 |
+| `MCP_PORT` | `8001` | MCP 端口 |
+| `STUDY_RAG_LOG_LEVEL` | `INFO` | 日志级别 |
+| `STUDY_RAG_ADMIN_TOKEN` | *(空)* | admin Bearer Token（生产必设） |
+| `STUDY_RAG_MCP_REQUIRE_API_KEY` | `false` | 强制 MCP api_key |
+| `MILVUS_URI` | `http://milvus:19530` | 向量库地址 |
+| `OPENAI_API_KEY` | *(空)* | OpenAI embedding key |
+
+YAML 配置内的 `${VAR}` 占位符在运行时解析为环境变量，无需改代码即可切换后端。
 
 ---
 

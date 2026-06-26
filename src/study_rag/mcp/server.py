@@ -49,43 +49,49 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
             "study_rag 是一个企业知识库检索服务。\n"
             "\n"
             "典型工作流：\n"
-            "1. 先调用 list_accessible_kbs(api_key) 了解可用知识库\n"
+            "1. 先调用 list_accessible_kbs() 了解可用知识库\n"
             "   或者读取资源 kb://all 一次性获取所有 KB 列表\n"
             "2. 根据 KB 描述判断该查哪个\n"
-            "3. 调用 search_kb(api_key, kb_id, query) 检索\n"
-            "4. 调用 get_document(api_key, kb_id, doc_id) 查看完整文档\n"
+            "3. 调用 search_kb(kb_id, query) 检索\n"
+            "4. 调用 get_document(kb_id, doc_id) 查看完整文档\n"
             "   或者直接读取资源 doc://{kb_id}/{doc_id}\n"
             "\n"
             "kb_id 命名规范: {dept}_{name}（如 rd_frontend、hr_policies）\n"
-            "如果不确定查哪个 KB，可直接调 search_all_accessible_kbs 跨 KB 检索。"
+            "如果不确定查哪个 KB，可直接调 search_all_accessible_kbs 跨 KB 检索。\n"
+            "\n"
+            "所有 Tool 的 api_key 参数当前为占位实现，可留空字符串。\n"
+            "后续接入 JWT/OAuth 后，配置 STUDY_RAG_MCP_REQUIRE_API_KEY=true 即强制校验。"
         ),
     )
 
     # ---- 注册 Tool ----
 
     @mcp.tool()
-    async def list_accessible_kbs_tool(api_key: str) -> str:
+    async def list_accessible_kbs_tool(api_key: str = "") -> str:
         """列出当前用户可访问的所有知识库及其描述（JSON 字符串）。
 
         任何检索操作的第一步（强烈建议先调用）。
+        api_key: 用户凭证（占位实现：可留空字符串；非空时 user_id=api_key）。
         """
         kbs = await discovery.list_accessible_kbs(api_key, ctx)
         return json.dumps([kb.model_dump() for kb in kbs], ensure_ascii=False)
 
     @mcp.tool()
-    async def get_kb_info_tool(api_key: str, kb_id: str) -> str:
+    async def get_kb_info_tool(api_key: str = "", kb_id: str = "") -> str:
         """获取指定知识库的详细信息（返回 JSON 字符串）。
 
         在调用 search_kb 之前确认 KB 内容范围。
+        api_key: 用户凭证（可留空字符串）。
+        kb_id: 知识库 ID。
         """
         detail = await discovery.get_kb_info(api_key, kb_id, ctx)
         return json.dumps(detail.model_dump(), ensure_ascii=False)
 
     @mcp.tool()
     async def search_kb_tool(
-        api_key: str,
-        kb_id: str,
-        query: str,
+        api_key: str = "",
+        kb_id: str = "",
+        query: str = "",
         top_k: int = 5,
         use_rerank: bool = True,
         filter_expr: dict | None = None,
@@ -115,8 +121,8 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
 
     @mcp.tool()
     async def search_all_accessible_kbs_tool(
-        api_key: str,
-        query: str,
+        api_key: str = "",
+        query: str = "",
         top_k: int = 5,
         use_rerank: bool = True,
         filter_expr: dict | None = None,
@@ -138,7 +144,7 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
         return json.dumps([hit.model_dump() for hit in hits], ensure_ascii=False)
 
     @mcp.tool()
-    async def get_document_tool(api_key: str, kb_id: str, doc_id: str) -> str:
+    async def get_document_tool(api_key: str = "", kb_id: str = "", doc_id: str = "") -> str:
         """获取指定文档的完整内容（返回 JSON 字符串）。
 
         适用场景: search_kb 返回结果后，查看完整文档内容。
@@ -148,8 +154,8 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
 
     @mcp.tool()
     async def list_documents_tool(
-        api_key: str,
-        kb_id: str,
+        api_key: str = "",
+        kb_id: str = "",
         limit: int = 100,
         offset: int = 0,
     ) -> str:
@@ -166,11 +172,11 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
 
     @mcp.tool()
     async def add_document_tool(
-        api_key: str,
-        kb_id: str,
-        doc_id: str,
-        title: str,
-        content: str,
+        api_key: str = "",
+        kb_id: str = "",
+        doc_id: str = "",
+        title: str = "",
+        content: str = "",
         source: str | None = None,
         metadata: dict | None = None,
         overwrite: bool = False,
@@ -195,11 +201,11 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
 
     @mcp.tool()
     async def add_document_chunked_tool(
-        api_key: str,
-        kb_id: str,
-        doc_id: str,
-        title: str,
-        content: str,
+        api_key: str = "",
+        kb_id: str = "",
+        doc_id: str = "",
+        title: str = "",
+        content: str = "",
         source: str | None = None,
         metadata: dict | None = None,
         parser_config: dict | None = None,
@@ -226,9 +232,9 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
 
     @mcp.tool()
     async def add_documents_batch_tool(
-        api_key: str,
-        kb_id: str,
-        documents: list[dict],
+        api_key: str = "",
+        kb_id: str = "",
+        documents: list[dict] | None = None,
         overwrite: bool = False,
     ) -> str:
         """批量添加文档到指定知识库（每篇一个 chunk，返回 JSON 字符串）。
@@ -247,7 +253,7 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
         return json.dumps([r.model_dump() for r in results], ensure_ascii=False)
 
     @mcp.tool()
-    async def delete_document_tool(api_key: str, kb_id: str, doc_id: str) -> str:
+    async def delete_document_tool(api_key: str = "", kb_id: str = "", doc_id: str = "") -> str:
         """删除指定知识库中的文档（向量 + meta 一起删，返回 JSON 字符串）。
 
         需要写权限。文档不存在时报 DocumentNotFoundError。
@@ -265,10 +271,10 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
         """所有可访问知识库的列表（JSON 字符串）。
 
         适用场景: agent 想一次性拿到所有 KB 描述，而不是循环调用 list_accessible_kbs_tool。
-        需要鉴权时用 query 参数 ?api_key=xxx。
+        占位实现下返回所有 KB；真实鉴权接入后可按 query 参数 ?api_key=xxx 鉴权。
         """
-        # 占位鉴权（占位实现允许所有）
-        user = await ctx.auth.resolve("anonymous")
+        # 占位鉴权：anonymous（ServerSettings.mcp_require_api_key 决定是否强制）
+        user = await ctx.auth.resolve("")
         summaries = await ctx.manager.list_summaries()
         accessible = [
             s.model_dump() for s in summaries if s.kb_id in user.accessible_kbs
@@ -278,7 +284,7 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
     @mcp.resource("kb://{kb_id}")
     async def resource_kb_detail(kb_id: str) -> str:
         """单个知识库的详细信息（JSON 字符串）。"""
-        user = await ctx.auth.resolve("anonymous")
+        user = await ctx.auth.resolve("")
         ctx.auth.check_kb_access(user, kb_id)
         summary = await ctx.manager.get_summary(kb_id)
         if summary is None:
@@ -288,7 +294,7 @@ def create_mcp_server(ctx: MCPContext | None = None) -> FastMCP:
     @mcp.resource("doc://{kb_id}/{doc_id}")
     async def resource_doc(kb_id: str, doc_id: str) -> str:
         """文档完整内容（JSON 字符串）。"""
-        user = await ctx.auth.resolve("anonymous")
+        user = await ctx.auth.resolve("")
         ctx.auth.check_kb_access(user, kb_id)
         doc = ctx.manager.get_document(kb_id, doc_id)
         if doc is None:

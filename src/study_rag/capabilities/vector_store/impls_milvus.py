@@ -284,7 +284,7 @@ class MilvusVectorStore:
             )
 
             schema = client.create_schema(
-                auto_id=True,
+                auto_id=False,
                 enable_dynamic_field=True,
             )
 
@@ -296,7 +296,7 @@ class MilvusVectorStore:
                 field_name=self._id_field,
                 datatype=DataType.INT64,
                 is_primary=True,
-                auto_id=True,
+                auto_id=False,
             )
             schema.add_field(
                 field_name=self._text_field,
@@ -607,9 +607,14 @@ class MilvusVectorStore:
             if not client.has_collection(collection):
                 raise ValueError(f"Collection '{collection}' 不存在")
             expr = to_milvus_expr(filter_expr)
+            # 显式指定 anns_field：BM25 schema 的 collection 同时有 vector（dense）
+            # 和 sparse_bm25 两个 anns_field，不指定时 Milvus 报
+            # "multiple anns_fields exist, please specify a anns_field"。
+            # dense-only collection 只有一个 anns_field，显式指定同样兼容。
             res = client.search(
                 collection_name=collection,
                 data=[query_vector],
+                anns_field=self._vector_field,
                 limit=top_k,
                 filter=expr,
                 output_fields=[self._text_field, self._metadata_field],

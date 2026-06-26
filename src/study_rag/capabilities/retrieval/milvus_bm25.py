@@ -48,6 +48,35 @@ def _has_milvus_bm25_methods(vector_store: VectorStore) -> bool:
     )
 
 
+def _is_bm25_schema_error(err: Exception) -> bool:
+    """判断异常是否因 collection 缺少 BM25 字段（sparse_bm25）导致。"""
+    msg = str(err).lower()
+    return (
+        "sparse_bm25" in msg
+        or "field schema by name" in msg
+        or ("failed to create query plan" in msg and "not found" in msg)
+    )
+
+
+def _wrap_bm25_schema_error(collection: str, err: Exception) -> Exception:
+    """若 err 是 BM25 schema 缺失错误，返回清晰可操作的错误；否则原样返回。"""
+    if _is_bm25_schema_error(err):
+        return ValueError(
+            f"Collection '{collection}' 不支持 BM25 全文检索（缺少 sparse_bm25 字段）。"
+            f"该 collection 是 dense-only schema，无法使用 sparse_milvus / hybrid_milvus 策略。"
+            f"请调用 POST /admin/kbs/{{kb_id}}/recreate-collection 重建为 BM25 schema"
+            f"（会保留已有文档数据），或将检索策略改为 dense / sparse / hybrid。"
+        )
+    return err
+
+
+def _raise_if_schema_mismatch(collection: str, err: Exception) -> None:
+    """若是 BM25 schema 缺失错误，抛出清晰错误；否则不抛（交给调用方降级）。"""
+    wrapped = _wrap_bm25_schema_error(collection, err)
+    if wrapped is not err:
+        raise wrapped
+
+
 @register_retrieval_engine(RetrievalStrategy.SPARSE_MILVUS)
 class MilvusSparseRetrievalEngine(RetrievalEngine):
     """Milvus 2.5+ 原生 BM25 全文检索引擎。
@@ -99,12 +128,15 @@ class MilvusSparseRetrievalEngine(RetrievalEngine):
         )
 
         # Milvus BM25 全文检索（直接传文本，无需 embedding）
-        candidates = await self._vector_store.search_sparse(
-            collection=self._collection,
-            query_text=request.query,
-            top_k=candidate_k,
-            filter_expr=request.filter_expr,
-        )
+        try:
+            candidates = await self._vector_store.search_sparse(
+                collection=self._collection,
+                query_text=request.query,
+                top_k=candidate_k,
+                filter_expr=request.filter_expr,
+            )
+        except Exception as e:
+            raise _wrap_bm25_schema_error(self._collection, e) from e
 
         # Rerank
         if request.use_rerank and self._reranker:
@@ -201,8 +233,10 @@ class MilvusHybridRetrievalEngine(RetrievalEngine):
                 rrf_k=self._params.rrf_k,
             )
         except Exception as e:
-            # hybrid_search 可能因 Milvus 版本不支持而失败
-            # 降级为纯 dense 检索（保证可用性）
+            # 若是 BM25 schema 缺失（collection 没有 sparse_bm25 字段），
+            # 给出清晰错误而非静默降级到 dense（否则用户以为 hybrid 生效了实际没生效）
+            _raise_if_schema_mismatch(self._collection, e)
+            # 其它错误（如 Milvus 版本不支持 hybrid_search）降级为纯 dense 检索
             logger.warning(
                 "milvus_hybrid_search_failed_fallback_to_dense",
                 error=str(e),

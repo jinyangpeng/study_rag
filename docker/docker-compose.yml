@@ -2,14 +2,35 @@
 #  study_rag docker-compose
 #
 #  服务:
-#    - admin   : FastAPI 管理面 (port 8765)
-#    - mcp     : MCP standalone server, streamable_http (port 8001)
-#    - milvus  : 可选向量库 (profile=vector)
+#    admin       : FastAPI 管理面 + SPA (port 8765)
+#    mcp         : MCP standalone server, streamable_http (port 8001)
+#    milvus-*    : 可选向量库 (profile=vector)
+#    dev-tools   : 调试 / 一次性任务 (profile=dev)
 #
 #  使用:
-#    docker compose up admin mcp
-#    docker compose --profile vector up
-#    docker compose --profile dev run --rm dev-tools just test
+#    # 1. 准备环境变量（可选，不创建则用默认值 / 空值）
+#    cp .env.example .env   # 按需填写 API_KEY / TOKEN
+#
+#    # 2. 启动 admin + mcp（默认）
+#    docker compose -f docker/docker-compose.yml up -d
+#    # 或用 justfile: just docker-up
+#
+#    # 3. 启动 admin + mcp + Milvus（带向量库）
+#    docker compose -f docker/docker-compose.yml --profile vector up -d
+#    # 或: just docker-up-vector
+#
+#    # 4. 查看日志 / 停止
+#    docker compose -f docker/docker-compose.yml logs -f
+#    docker compose -f docker/docker-compose.yml down
+#
+#  环境变量注入说明:
+#    - docker compose 自动从「命令执行目录」加载 .env 用于 ${VAR} 插值（无文件不报错）
+#    - 下方 environment: 把所需变量显式传入容器；未设置时取默认值 / 空串
+#    - secrets（API_KEY 等）请在项目根 .env 填写，自动被插值注入
+#
+#  镜像构建参数（Dockerfile ARG）:
+#    EXTRAS : 可选依赖组，默认 llamaindex,vector-milvus
+#      docker compose -f docker/docker-compose.yml build --build-arg EXTRAS=llamaindex,vector-milvus,embedding-openai,reranker-bge
 # ============================================
 
 services:
@@ -21,20 +42,40 @@ services:
     container_name: study-rag-admin
     environment:
       CONTAINER_ROLE: admin
-      ADMIN_PORT: "8765"
-      # 把 secrets 通过 .env 注入；例：
-      # OPENAI_API_KEY: ${OPENAI_API_KEY}
-      # COHERE_API_KEY: ${COHERE_API_KEY}
+      STUDY_RAG_HOST: "0.0.0.0"
+      STUDY_RAG_PORT: "8765"
+      STUDY_RAG_LOG_LEVEL: ${STUDY_RAG_LOG_LEVEL:-info}
+      # admin REST Bearer Token（未设置=不鉴权；生产务必设置）
+      STUDY_RAG_ADMIN_TOKEN: ${STUDY_RAG_ADMIN_TOKEN:-}
+      # MCP 鉴权开关
+      STUDY_RAG_MCP_REQUIRE_API_KEY: ${STUDY_RAG_MCP_REQUIRE_API_KEY:-false}
+      # 向量库地址：启用 --profile vector 后用服务名 milvus
+      MILVUS_URI: ${MILVUS_URI:-http://milvus:19530}
+      MILVUS_TOKEN: ${MILVUS_TOKEN:-}
+      MILVUS_DB: ${MILVUS_DB:-default}
+      # ---- Embedding / Reranker secrets（按实际使用透传） ----
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      ZHIPUAI_API_KEY: ${ZHIPUAI_API_KEY:-}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
+      LOCAL_EMBED_API_KEY: ${LOCAL_EMBED_API_KEY:-}
+      LOCAL_RERANK_API_KEY: ${LOCAL_RERANK_API_KEY:-}
     ports:
-      - "8765:8765"
+      - "${ADMIN_PORT:-8765}:8765"
     volumes:
-      # 允许本地覆盖配置而无需重新构建镜像
-      - ../configs:/app/configs:ro
+      # 配置目录：admin REST 支持运行时写 KB/embedder/reranker 配置，故需可写
+      # 生产环境若要锁定配置，可改为 :ro 并禁用 admin 配置写入接口
+      - ../configs:/app/configs
+      # 持久化数据（docs_index.json 等），admin 与 mcp 共享
       - rag-data:/app/data
+    networks:
+      - rag-net
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/health/live"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/health"]
       interval: 30s
       timeout: 5s
+      start_period: 20s
       retries: 3
     restart: unless-stopped
 
@@ -46,23 +87,43 @@ services:
     container_name: study-rag-mcp
     environment:
       CONTAINER_ROLE: mcp
+      MCP_HOST: "0.0.0.0"
       MCP_PORT: "8001"
+      STUDY_RAG_LOG_LEVEL: ${STUDY_RAG_LOG_LEVEL:-info}
+      STUDY_RAG_MCP_REQUIRE_API_KEY: ${STUDY_RAG_MCP_REQUIRE_API_KEY:-false}
+      MILVUS_URI: ${MILVUS_URI:-http://milvus:19530}
+      MILVUS_TOKEN: ${MILVUS_TOKEN:-}
+      MILVUS_DB: ${MILVUS_DB:-default}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      ZHIPUAI_API_KEY: ${ZHIPUAI_API_KEY:-}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
+      LOCAL_EMBED_API_KEY: ${LOCAL_EMBED_API_KEY:-}
+      LOCAL_RERANK_API_KEY: ${LOCAL_RERANK_API_KEY:-}
     ports:
-      - "8001:8001"
+      - "${MCP_PORT:-8001}:8001"
     depends_on:
       admin:
         condition: service_healthy
     volumes:
+      # MCP 只读配置即可（不写配置）
       - ../configs:/app/configs:ro
       - rag-data:/app/data
+    networks:
+      - rag-net
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "-X", "POST", "http://127.0.0.1:8001/mcp"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8001/health"]
       interval: 30s
       timeout: 5s
+      start_period: 20s
       retries: 3
     restart: unless-stopped
 
   # ---- 调试 / 一次性任务 ----
+  # 进入容器跑命令：
+  #   docker compose -f docker/docker-compose.yml --profile dev run --rm dev-tools just test
+  #   docker compose -f docker/docker-compose.yml --profile dev run --rm dev-tools just lint
   dev-tools:
     image: study-rag:dev
     build:
@@ -71,17 +132,19 @@ services:
     profiles: ["dev"]
     environment:
       CONTAINER_ROLE: admin
+      MILVUS_URI: ${MILVUS_URI:-http://milvus:19530}
     volumes:
       - ..:/app
       - rag-data:/app/data
     working_dir: /app
     command: ["sleep", "infinity"]
-    # 进入容器跑命令：
-    #   docker compose --profile dev run --rm dev-tools just test
-    #   docker compose --profile dev run --rm dev-tools just lint
+    networks:
+      - rag-net
 
-  # ---- 可选：Milvus 向量库 ----
-  # 启用：docker compose --profile vector up
+  # ============================================
+  #  可选：Milvus Standalone 向量库
+  #  启用：docker compose -f docker/docker-compose.yml --profile vector up
+  # ============================================
   milvus-etcd:
     image: quay.io/coreos/etcd:v3.5.16
     container_name: milvus-etcd
@@ -93,9 +156,18 @@ services:
       ETCD_SNAPSHOT_COUNT: "50000"
     volumes:
       - milvus-etcd:/etcd
-    command: ["etcd", "-advertise-client-urls=http://milvus-etcd:2379",
-              "--listen-client-urls", "http://0.0.0.0:2379",
-              "--data-dir", "/etcd"]
+    command: >
+      etcd
+      -advertise-client-urls=http://milvus-etcd:2379
+      --listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
+    networks:
+      - rag-net
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
     restart: unless-stopped
 
   milvus-minio:
@@ -108,6 +180,13 @@ services:
     volumes:
       - milvus-minio:/minio_data
     command: minio server /minio_data
+    networks:
+      - rag-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
     restart: unless-stopped
 
   milvus:
@@ -119,13 +198,27 @@ services:
       ETCD_ENDPOINTS: milvus-etcd:2379
       MINIO_ADDRESS: milvus-minio:9000
     depends_on:
-      - milvus-etcd
-      - milvus-minio
+      milvus-etcd:
+        condition: service_healthy
+      milvus-minio:
+        condition: service_healthy
     ports:
-      - "19530:19530"
+      - "${MILVUS_PORT:-19530}:19530"
     volumes:
       - milvus-data:/var/lib/milvus
+    networks:
+      - rag-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
     restart: unless-stopped
+
+networks:
+  rag-net:
+    driver: bridge
 
 volumes:
   rag-data:

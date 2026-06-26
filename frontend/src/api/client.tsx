@@ -202,6 +202,34 @@ class ApiClient {
     }
   }
 
+  /**
+   * 重建 KB 的 collection（升级为 BM25 schema），保留已有向量数据（无需重新 embedding）。
+   *
+   * 适用场景：旧 collection 是 dense-only schema（无 sparse_bm25 字段），
+   * 使用 sparse_milvus / hybrid_milvus 策略检索时报 400。
+   * 流程：拉旧 chunks → drop → 建 BM25 collection → 回插 → 失效检索引擎缓存。
+   */
+  async recreateCollection(
+    kbId: string
+  ): Promise<{
+    kb_id: string;
+    collection: string;
+    migrated_chunks: number;
+    bm25_enabled: boolean;
+  }> {
+    try {
+      const { data } = await this.http.post<{
+        kb_id: string;
+        collection: string;
+        migrated_chunks: number;
+        bm25_enabled: boolean;
+      }>(`/admin/kbs/${encodeURIComponent(kbId)}/recreate-collection`);
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
   async listEmbedders(): Promise<EmbedderInfo[]> {
     try {
       const { data } = await this.http.get<EmbedderInfo[]>("/admin/embedders");

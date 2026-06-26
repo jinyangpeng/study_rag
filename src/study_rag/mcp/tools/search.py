@@ -88,9 +88,9 @@ async def _rerank_with_fallback(
 # ---- Tool ----
 
 async def search_kb(
-    api_key: str,
-    kb_id: str,
-    query: str,
+    api_key: str = "",
+    kb_id: str = "",
+    query: str = "",
     top_k: int | None = None,
     use_rerank: bool = True,
     filter_expr: dict | None = None,
@@ -189,8 +189,8 @@ async def search_kb(
 
 
 async def search_all_accessible_kbs(
-    api_key: str,
-    query: str,
+    api_key: str = "",
+    query: str = "",
     top_k: int = 5,
     use_rerank: bool = True,
     filter_expr: dict | None = None,

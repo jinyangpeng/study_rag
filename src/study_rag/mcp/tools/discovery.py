@@ -34,8 +34,8 @@ class KBDetail(BaseModel):
 
 
 async def list_accessible_kbs(
-    api_key: str,
-    ctx: MCPContext,
+    api_key: str = "",
+    ctx: MCPContext | None = None,
 ) -> list[KBInfo]:
     """列出当前用户可访问的所有知识库及其描述。
 
@@ -45,7 +45,8 @@ async def list_accessible_kbs(
       - 需要根据 KB 描述判断该查哪个
 
     参数:
-      api_key: 用户凭证（当前为占位，鉴权未启用）
+      api_key: 用户凭证（占位实现：可空；非空时 user_id=api_key）。
+        是否强制要求由 ServerSettings.mcp_require_api_key 控制（默认 False）。
 
     返回:
       list[KBInfo]: 知识库列表，每个元素包含：
@@ -55,6 +56,10 @@ async def list_accessible_kbs(
         - department: 所属部门
         - document_count: 文档数量
     """
+    if ctx is None:
+        from ..context import MCPContext as _Ctx
+
+        ctx = _Ctx.default()
     user = await ctx.auth.resolve(api_key)
     summaries = await ctx.manager.list_summaries()
 
@@ -73,9 +78,9 @@ async def list_accessible_kbs(
 
 
 async def get_kb_info(
-    api_key: str,
-    kb_id: str,
-    ctx: MCPContext,
+    api_key: str = "",
+    kb_id: str = "",
+    ctx: MCPContext | None = None,
 ) -> KBDetail:
     """获取指定知识库的详细信息。
 
@@ -84,12 +89,16 @@ async def get_kb_info(
       - 查看 KB 的技术细节（embedding、reranker 等）
 
     参数:
-      api_key: 用户凭证
+      api_key: 用户凭证（可空）
       kb_id: 知识库 ID
 
     异常:
       KBNotFoundError: 知识库不存在或用户无权访问
     """
+    if ctx is None:
+        from ..context import MCPContext as _Ctx
+
+        ctx = _Ctx.default()
     user = await ctx.auth.resolve(api_key)
     ctx.auth.check_kb_access(user, kb_id)
 

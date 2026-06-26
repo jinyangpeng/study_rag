@@ -25,6 +25,8 @@ import {
   ChevronDown,
   ChevronUp,
   Info,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -76,6 +78,11 @@ export default function SearchTest() {
   const [searching, setSearching] = useState(false);
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recreating, setRecreating] = useState(false);
+
+  /** 判断错误是否因 collection 缺少 sparse_bm25 字段（dense-only schema）导致。
+   *  匹配后端 _wrap_bm25_schema_error 的错误信息关键字。 */
+  const isBm25SchemaError = !!error && error.includes("sparse_bm25");
 
   useEffect(() => {
     (async () => {
@@ -142,6 +149,27 @@ export default function SearchTest() {
       setError((e as Error).message);
     } finally {
       setSearching(false);
+    }
+  }
+
+  /** 一键重建当前 KB 的 collection（升级为 BM25 schema），完成后自动重新检索。
+   *  保留已有向量数据，无需重新 embedding。 */
+  async function handleRecreate() {
+    if (!kbId) return;
+    setRecreating(true);
+    try {
+      const r = await client.recreateCollection(kbId);
+      toast.success(
+        `Collection 已重建为 BM25 schema：迁移 ${r.migrated_chunks} 个 chunk，` +
+          `bm25_enabled=${r.bm25_enabled}`
+      );
+      setError(null);
+      // 重建后自动重试检索（验证修复生效）
+      await onSearch();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setRecreating(false);
     }
   }
 
@@ -478,7 +506,53 @@ export default function SearchTest() {
 
       {/* Result */}
       {error ? (
-        <ErrorState message={error} onRetry={() => void onSearch()} />
+        isBm25SchemaError ? (
+          // BM25 schema 缺失专用错误块：解释原因 + 一键重建按钮
+          <div className="flex flex-col items-center justify-center gap-3 rounded border border-warning/30 bg-warning/5 p-6 text-center">
+            <AlertCircle className="size-5 text-warning" />
+            <div className="space-y-1">
+              <div className="text-sm font-medium text-fg">
+                Collection 缺少 BM25 schema
+              </div>
+              <div className="max-w-2xl text-xs text-fg-muted">
+                当前知识库 <code className="rounded bg-bg-tertiary px-1 font-mono">{kbId}</code> 的 collection 是 dense-only schema
+                （无 <code className="font-mono">sparse_bm25</code> 字段），无法使用
+                <code className="font-mono"> sparse_milvus </code>/
+                <code className="font-mono"> hybrid_milvus </code>策略。
+                点击下方按钮重建 collection 为 BM25 schema —— 已有向量数据会保留，无需重新 embedding。
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={handleRecreate}
+                disabled={recreating}
+              >
+                {recreating ? (
+                  <>
+                    <RefreshCw className="size-3.5 animate-spin" />
+                    重建中...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="size-3.5" />
+                    一键重建 Collection
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void onSearch()}
+                disabled={recreating}
+              >
+                重试检索
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <ErrorState message={error} onRetry={() => void onSearch()} />
+        )
       ) : searching ? (
         <div className="space-y-2">
           {Array.from({ length: 3 }).map((_, i) => (

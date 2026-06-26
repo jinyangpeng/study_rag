@@ -60,6 +60,7 @@ from ..knowledge_bases.manager import (
     hot_remove_reranker,
     list_available_embedders,
     list_available_rerankers,
+    recreate_collection,
 )
 from ..knowledge_bases.models import (
     EmbedderConfigCreate,
@@ -354,6 +355,58 @@ async def delete_kb_endpoint(
         AdminMetrics.REQUESTS, {"endpoint": "delete_kb", "status": "ok"}
     )
     return removed
+
+
+@router.post(
+    "/kbs/{kb_id}/recreate-collection",
+    summary="重建 collection（升级 BM25 schema）",
+    description=(
+        "重建 KB 的向量库 collection，优先升级为 BM25 schema（Milvus 2.5+），"
+        "并保留已有文档向量数据（无需重新 embedding）。\n\n"
+        "**适用场景**：旧 collection 是 dense-only schema，需要用 "
+        "`sparse_milvus` / `hybrid_milvus` 策略检索时报 "
+        "`fieldName(sparse_bm25) not found`，调用本端点升级 schema。\n\n"
+        "流程：拉取旧 chunks → drop collection → 创建 BM25 collection → "
+        "重新 insert（向量复用）→ 失效引擎缓存。\n\n"
+        "⚠️ 重建期间该 KB 短暂不可检索。"
+    ),
+    responses={
+        200: {
+            "description": "重建成功",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "kb_id": "rd_test",
+                        "collection": "kb_rd_test",
+                        "migrated_chunks": 12,
+                        "bm25_enabled": True,
+                    }
+                }
+            },
+        },
+        404: {"description": "KB 不存在"},
+        400: {"description": "embedder 不可用 / 重建失败"},
+    },
+)
+async def recreate_collection_endpoint(
+    kb_id: str,
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> dict[str, Any]:
+    """重建 collection（升级 BM25 schema），保留已有向量数据。"""
+    try:
+        result = await recreate_collection(kb_id)
+    except Exception as e:
+        msg = str(e)
+        if "Unknown kb_id" in msg:
+            raise HTTPException(status_code=404, detail=msg) from e
+        raise HTTPException(status_code=400, detail=msg) from e
+
+    get_metrics().inc(
+        AdminMetrics.REQUESTS,
+        {"endpoint": "recreate_collection", "status": "ok"},
+    )
+    return result
 
 
 @router.get(

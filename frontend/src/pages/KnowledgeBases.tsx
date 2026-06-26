@@ -20,6 +20,7 @@ import {
   Building2,
   Cpu,
   ArrowUpRight,
+  RefreshCw,
 } from "lucide-react";
 import {
   Card,
@@ -64,6 +65,8 @@ export default function KnowledgeBases() {
   const [editTarget, setEditTarget] = useState<KnowledgeBaseSummary | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeBaseSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [recreateTarget, setRecreateTarget] = useState<KnowledgeBaseSummary | null>(null);
+  const [recreating, setRecreating] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -105,6 +108,24 @@ export default function KnowledgeBases() {
       toast.error((e as Error).message);
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function confirmRecreate() {
+    if (!recreateTarget) return;
+    setRecreating(true);
+    try {
+      const r = await client.recreateCollection(recreateTarget.kb_id);
+      toast.success(
+        `Collection 已重建为 BM25 schema：迁移 ${r.migrated_chunks} 个 chunk，` +
+          `bm25_enabled=${r.bm25_enabled}`
+      );
+      setRecreateTarget(null);
+      void load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setRecreating(false);
     }
   }
 
@@ -170,6 +191,7 @@ export default function KnowledgeBases() {
               onOpen={() => navigate(`/kbs/${kb.kb_id}/documents`)}
               onEdit={() => setEditTarget(kb)}
               onDelete={() => setDeleteTarget(kb)}
+              onRecreate={() => setRecreateTarget(kb)}
             />
           ))}
         </div>
@@ -222,6 +244,46 @@ export default function KnowledgeBases() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Recreate collection confirm */}
+      <Dialog
+        open={!!recreateTarget}
+        onOpenChange={(o) => !o && setRecreateTarget(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>重建 Collection（升级 BM25 schema）</DialogTitle>
+            <DialogDescription>
+              重建知识库 <code className="rounded bg-bg-tertiary px-1 font-mono text-xs">{recreateTarget?.kb_id}</code> 的向量库 collection，将其升级为 BM25 schema（含 <code className="font-mono text-xs">sparse_bm25</code> 字段），以支持 <code className="font-mono text-xs">sparse_milvus</code> / <code className="font-mono text-xs">hybrid_milvus</code> 策略。
+              <br /><br />
+              <span className="font-medium text-fg">已有向量数据会被保留</span>（无需重新 embedding）：拉取旧 chunks → drop collection → 建 BM25 collection → 回插。检索引擎缓存会自动失效。
+              <br /><br />
+              <span className="text-fg-muted">适用场景：旧 collection 是 dense-only schema，使用 Milvus BM25 策略检索时报 <code className="font-mono text-xs">fieldName(sparse_bm25) not found</code>。</span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRecreateTarget(null)}>
+              取消
+            </Button>
+            <Button
+              onClick={confirmRecreate}
+              disabled={recreating}
+            >
+              {recreating ? (
+                <>
+                  <RefreshCw className="size-3.5 animate-spin" />
+                  重建中...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="size-3.5" />
+                  确认重建
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -231,11 +293,13 @@ function KBCard({
   onOpen,
   onEdit,
   onDelete,
+  onRecreate,
 }: {
   kb: KnowledgeBaseSummary;
   onOpen: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onRecreate: () => void;
 }) {
   return (
     <Card
@@ -268,6 +332,9 @@ function KBCard({
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onEdit}>
                 <SettingsIcon className="size-3.5" /> 编辑
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onRecreate}>
+                <RefreshCw className="size-3.5" /> 重建 Collection（升级 BM25）
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

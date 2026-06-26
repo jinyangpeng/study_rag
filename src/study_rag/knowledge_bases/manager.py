@@ -150,8 +150,10 @@ class KnowledgeBaseManager:
         若 KB 引用的 embedder 未加载（缺依赖被跳过），跳过该 KB 不抛错。
         这样部分 provider 不可用时服务仍能起来（用 in-memory fallback 或后续修复）。
 
-        检索策略为 sparse_milvus / hybrid_milvus 时，创建带 BM25 的 collection
-        （需 Milvus 2.5+）；其它策略创建普通 dense collection。
+        collection schema 与检索策略**解耦**：始终优先创建带 BM25 的 collection
+        （Milvus 2.5+），使任意策略（dense / sparse / hybrid / sparse_milvus /
+        hybrid_milvus）均可 per-request 使用，无需因切换策略重建 collection。
+        不支持 BM25 时降级为普通 dense collection。
 
         Returns:
             True  - collection 创建成功
@@ -171,42 +173,63 @@ class KnowledgeBaseManager:
             )
             return False
 
-        # 根据检索策略决定创建哪种 collection
+        # 合并策略参数获取 analyzer_type（BM25 分词器，不影响 dense 检索）
         global_cfg = self.get_retrieval_config()
         effective_strategy = _resolve_strategy(cfg, global_cfg)
-        if effective_strategy in (
-            RetrievalStrategy.SPARSE_MILVUS,
-            RetrievalStrategy.HYBRID_MILVUS,
-        ):
-            # 合并参数获取 analyzer_type
-            merged = _merge_strategy_params(
-                effective_strategy, global_cfg, cfg.retrieval_params, None
-            )
-            analyzer_type = merged.get("analyzer_type", "chinese")
-            try:
-                await self._vector_store.create_collection_with_bm25(
-                    name=cfg.collection,
-                    dimension=embedder.dimension,
-                    analyzer_type=analyzer_type,
-                )
-            except (AttributeError, ImportError, RuntimeError) as e:
-                # vector_store 不支持 BM25 或 Milvus 版本不够
-                logger.error(
-                    "kb_init_bm25_failed",
-                    kb_id=kb_id,
-                    strategy=effective_strategy.value,
-                    error=str(e),
-                    hint="Ensure Milvus >= 2.5 and pymilvus >= 2.5, "
-                    "or change KB retrieval_strategy to dense/sparse/hybrid",
-                )
-                return False
-        else:
-            await self._vector_store.create_collection(
-                name=cfg.collection,
-                dimension=embedder.dimension,
-            )
+        merged = _merge_strategy_params(
+            effective_strategy, global_cfg, cfg.retrieval_params, None
+        )
+        analyzer_type = merged.get("analyzer_type", "chinese")
+
+        await self._ensure_collection(
+            name=cfg.collection,
+            dimension=embedder.dimension,
+            analyzer_type=analyzer_type,
+        )
         self._docs.setdefault(kb_id, {})
         return True
+
+    async def _ensure_collection(
+        self,
+        name: str,
+        dimension: int,
+        analyzer_type: str = "chinese",
+    ) -> None:
+        """创建 collection，优先 BM25 schema，不支持时降级普通 schema。
+
+        - 已存在则跳过（不破坏已有数据）
+        - vector store 支持 create_collection_with_bm25 时优先用 BM25 schema
+          （Milvus 2.5+），使 collection 同时具备 dense + 全文检索能力
+        - 不支持 BM25（旧版 Milvus / pymilvus / 非 milvus provider）降级普通 collection
+        """
+        if await self._vector_store.has_collection(name):
+            logger.debug("collection_exists_skip_create", collection=name)
+            return
+
+        if hasattr(self._vector_store, "create_collection_with_bm25"):
+            try:
+                await self._vector_store.create_collection_with_bm25(
+                    name=name,
+                    dimension=dimension,
+                    analyzer_type=analyzer_type,
+                )
+                logger.info(
+                    "collection_created_bm25",
+                    collection=name,
+                    dim=dimension,
+                    analyzer=analyzer_type,
+                )
+                return
+            except (ImportError, RuntimeError, AttributeError) as e:
+                logger.warning(
+                    "bm25_collection_unavailable_fallback_dense",
+                    collection=name,
+                    error=str(e),
+                    hint="Ensure Milvus >= 2.5 and pymilvus >= 2.5 for BM25 support",
+                )
+
+        await self._vector_store.create_collection(name=name, dimension=dimension)
+        logger.info("collection_created_dense", collection=name, dim=dimension)
 
     async def init_all(self) -> None:
         """初始化所有知识库。"""
@@ -299,6 +322,91 @@ class KnowledgeBaseManager:
             vector_store=vs_provider,
             collection=cfg.collection,
         )
+
+    async def recreate_collection(self, kb_id: str) -> dict[str, Any]:
+        """重建 KB 的 collection（升级为 BM25 schema），保留已有向量数据。
+
+        适用场景：旧 collection 是 dense-only schema（init_kb 解耦前创建），
+        需要用 sparse_milvus / hybrid_milvus 策略检索时，通过本方法升级 schema。
+
+        流程：
+          1. 从旧 collection 分页拉取所有 chunks（含 vector / text / metadata）
+          2. drop 旧 collection
+          3. 创建新 collection（优先 BM25 schema，不支持时降级普通）
+          4. 重新 insert 所有 chunks（向量已存在，无需重新 embedding）
+          5. 失效检索引擎缓存
+
+        不会修改 _docs 索引（DocumentMeta 不受影响）。
+        """
+        cfg = self._registry.get_required(kb_id)
+        collection = cfg.collection
+        embedder = self.get_embedder(kb_id)
+
+        # 1. 拉取旧数据（分页，避免单次拉取过大）
+        existing = await self._vector_store.has_collection(collection)
+        records: list[VectorRecord] = []
+        if existing:
+            offset = 0
+            batch = 500
+            while True:
+                batch_records = await self._vector_store.query(
+                    collection, limit=batch, offset=offset
+                )
+                if not batch_records:
+                    break
+                records.extend(batch_records)
+                if len(batch_records) < batch:
+                    break
+                offset += batch
+
+        # 2. drop 旧 collection
+        if existing:
+            await self._vector_store.drop_collection(collection)
+
+        # 3. 创建新 collection（优先 BM25）
+        bm25_enabled = False
+        if hasattr(self._vector_store, "create_collection_with_bm25"):
+            try:
+                await self._vector_store.create_collection_with_bm25(
+                    name=collection,
+                    dimension=embedder.dimension,
+                    analyzer_type="chinese",
+                )
+                bm25_enabled = True
+            except (ImportError, RuntimeError, AttributeError) as e:
+                logger.warning(
+                    "recreate_bm25_fallback_dense",
+                    collection=collection,
+                    error=str(e),
+                )
+                await self._vector_store.create_collection(
+                    name=collection, dimension=embedder.dimension
+                )
+        else:
+            await self._vector_store.create_collection(
+                name=collection, dimension=embedder.dimension
+            )
+
+        # 4. 重新 insert（向量已存在，无需重新 embedding）
+        if records:
+            await self._vector_store.insert(collection, records)
+
+        # 5. 失效检索引擎缓存（schema 变了，缓存的引擎需要重建）
+        await self._invalidate_retrieval_engines(kb_id)
+
+        logger.info(
+            "collection_recreated",
+            kb_id=kb_id,
+            collection=collection,
+            migrated_chunks=len(records),
+            bm25_enabled=bm25_enabled,
+        )
+        return {
+            "kb_id": kb_id,
+            "collection": collection,
+            "migrated_chunks": len(records),
+            "bm25_enabled": bm25_enabled,
+        }
 
     # ---- Document 级别 ----
 
@@ -1365,6 +1473,32 @@ async def delete_kb_collection(kb_id: str) -> None:
         _manager_singleton._li_engines.pop(kb_id, None)  # type: ignore[attr-defined]
     # 清空策略化检索引擎缓存
     await _manager_singleton._invalidate_retrieval_engines(kb_id)  # type: ignore[attr-defined]
+
+
+async def recreate_collection(kb_id: str) -> dict[str, Any]:
+    """重建 KB 的 collection（升级为 BM25 schema），保留已有向量数据。
+
+    适用场景：旧 collection 是 dense-only schema（init_kb 解耦前创建），
+    需要用 sparse_milvus / hybrid_milvus 策略检索时，通过本方法升级 schema。
+
+    流程：
+      1. 从旧 collection 分页拉取所有 chunks（含 vector / text / metadata）
+      2. drop 旧 collection
+      3. 创建新 collection（优先 BM25 schema，不支持时降级普通）
+      4. 重新 insert 所有 chunks（向量已存在，无需重新 embedding）
+      5. 失效检索引擎缓存
+
+    不会修改 _docs 索引（DocumentMeta 不受影响）。
+
+    Returns:
+        {"kb_id", "collection", "migrated_chunks", "bm25_enabled"}
+
+    Raises:
+        KBNotFoundError / ComponentUnavailableError
+    """
+    if _manager_singleton is None:
+        raise RuntimeError("KnowledgeBaseManager not initialized")
+    return await _manager_singleton.recreate_collection(kb_id)  # type: ignore[attr-defined]
 
 
 # ===== 检索策略辅助函数 =====

@@ -94,9 +94,30 @@ admin:
 mcp:
     {{py}} -m uvicorn study_rag.mcp_standalone:app --host 127.0.0.1 --port {{mcp_port}} --reload
 
-# Start MCP Inspector (requires npx)
+# Start MCP Inspector UI (opens browser at localhost:6274, pre-configured for our MCP server)
+# Requires: `just mcp` running in another terminal
+#
+# 实现：把 PowerShell 多行脚本放到 scripts/inspector.ps1
+#   - just recipe body 不支持多行缩进（会报 "extra leading whitespace"）
+#   - 单独 .ps1 文件避免 just+PowerShell $ 变量冲突（just $$  → PS $ 的双重转义）
+#
+# 工作流程见 scripts/inspector.ps1 注释
 inspector:
-    npx --yes @modelcontextprotocol/inspector --transport streamable-http --server-url http://localhost:{{mcp_port}}/mcp
+    powershell -NoLogo -ExecutionPolicy Bypass -File scripts/inspector.ps1 -McpPort {{mcp_port}}
+
+# MCP Inspector CLI mode: list all tools from our MCP server
+# Requires: `just mcp` running in another terminal
+inspector-tools:
+    @echo "Listing MCP tools from http://localhost:{{mcp_port}}/mcp ..."
+    npx --yes @modelcontextprotocol/inspector --cli http://localhost:{{mcp_port}}/mcp --transport http --method tools/list
+
+# MCP Inspector CLI mode: list all resources
+inspector-resources:
+    npx --yes @modelcontextprotocol/inspector --cli http://localhost:{{mcp_port}}/mcp --transport http --method resources/list
+
+# MCP Inspector CLI mode: list all prompts
+inspector-prompts:
+    npx --yes @modelcontextprotocol/inspector --cli http://localhost:{{mcp_port}}/mcp --transport http --method prompts/list
 
 # Start admin + mcp in two terminals
 dev:
@@ -104,21 +125,29 @@ dev:
 
 # ---- docker ----
 
-# Build Docker image
-docker-build:
-    docker build -f docker/Dockerfile -t study-rag:dev .
+# Build Docker image (EXTRAS 控制可选依赖组，默认 llamaindex,vector-milvus)
+docker-build EXTRAS="llamaindex,vector-milvus":
+    docker build -f docker/Dockerfile --build-arg EXTRAS={{EXTRAS}} -t study-rag:dev .
 
-# Start admin + mcp via docker compose
+# Start admin + mcp via docker compose（自动从项目根 .env 读取环境变量）
 docker-up:
-    docker compose -f docker/docker-compose.yml up --build
+    docker compose -f docker/docker-compose.yml up -d --build
 
 # Start admin + mcp + Milvus via docker compose
 docker-up-vector:
-    docker compose -f docker/docker-compose.yml --profile vector up --build
+    docker compose -f docker/docker-compose.yml --profile vector up -d --build
 
-# Stop docker compose
+# Follow logs of all services
+docker-logs:
+    docker compose -f docker/docker-compose.yml logs -f
+
+# Stop docker compose (keep volumes)
 docker-down:
     docker compose -f docker/docker-compose.yml down
+
+# Stop docker compose AND delete data volumes (Milvus / rag-data)
+docker-purge:
+    docker compose -f docker/docker-compose.yml down -v
 
 # Run tests inside docker container
 docker-test:
