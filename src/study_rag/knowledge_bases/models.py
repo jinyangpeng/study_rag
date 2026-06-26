@@ -25,6 +25,14 @@ class KnowledgeBaseConfig(BaseModel):
     collection: str = Field(..., description="向量库 collection 名称")
     embedding: str = Field(..., description="使用的 embedding 配置名（对应 embeddings.yaml 中的 key）")
     reranker: str | None = Field(default=None, description="使用的 reranker 配置名（可选）")
+    retrieval_strategy: str | None = Field(
+        default=None,
+        description="检索策略：dense / sparse / hybrid（None = 使用全局默认）",
+    )
+    retrieval_params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="检索策略参数覆盖（覆盖 retrieval.yaml 中的默认值）",
+    )
     enabled: bool = Field(default=True, description="是否启用")
     extra: dict[str, Any] = Field(default_factory=dict)
 
@@ -52,6 +60,14 @@ class KnowledgeBaseCreate(BaseModel):
     )
     embedding: str = Field(..., description="embedding 配置名（见 GET /admin/embedders）")
     reranker: str | None = Field(default=None, description="reranker 配置名（见 GET /admin/rerankers）")
+    retrieval_strategy: str | None = Field(
+        default=None,
+        description="检索策略：dense / sparse / hybrid（None = 使用全局默认）",
+    )
+    retrieval_params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="检索策略参数覆盖",
+    )
     enabled: bool = Field(default=True, description="是否启用")
 
 
@@ -66,6 +82,14 @@ class KnowledgeBaseUpdate(BaseModel):
     description: str | None = Field(default=None, min_length=1)
     department: str | None = Field(default=None, min_length=1, max_length=64)
     reranker: str | None = Field(default=None)
+    retrieval_strategy: str | None = Field(
+        default=None,
+        description="检索策略：dense / sparse / hybrid（None = 不修改）",
+    )
+    retrieval_params: dict[str, Any] | None = Field(
+        default=None,
+        description="检索策略参数覆盖（None = 不修改）",
+    )
     enabled: bool | None = Field(default=None)
 
 
@@ -255,6 +279,7 @@ class KnowledgeBaseSummary(BaseModel):
     chunk_count: int = Field(default=0, description="切块后的 chunk 总数（运行时统计）")
     embedder: str | None = Field(default=None, description="当前 embedder 配置名")
     reranker: str | None = Field(default=None, description="当前 reranker 配置名")
+    retrieval_strategy: str | None = Field(default=None, description="检索策略（dense/sparse/hybrid）")
     vector_store: str | None = Field(default=None, description="向量库 provider")
     collection: str | None = Field(default=None, description="向量库 collection 名称")
 

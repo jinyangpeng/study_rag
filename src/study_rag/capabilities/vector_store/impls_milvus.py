@@ -104,6 +104,8 @@ class MilvusVectorStore:
     _FIELD_VECTOR = "vector"
     _FIELD_TEXT = "text"
     _FIELD_METADATA = "metadata"
+    # BM25 全文检索专用字段名
+    _FIELD_SPARSE = "sparse_bm25"
 
     @staticmethod
     def _to_int64_id(raw: str) -> int:
@@ -229,6 +231,268 @@ class MilvusVectorStore:
 
         await asyncio.to_thread(_op)
         logger.info("Collection %s ready (dim=%d)", name, dimension)
+
+    async def create_collection_with_bm25(
+        self,
+        name: str,
+        dimension: int,
+        analyzer_type: str = "chinese",
+    ) -> None:
+        """创建带 BM25 全文检索能力的 collection（Milvus 2.5+）。
+
+        Schema 包含：
+          - id (INT64, auto_id)
+          - text (VARCHAR, enable_analyzer=True) — BM25 输入字段
+          - sparse_bm25 (SPARSE_FLOAT_VECTOR) — Function 自动生成
+          - vector (FLOAT_VECTOR, dim) — dense 向量
+          - metadata (JSON)
+
+        Function 对象将 text 自动转为 sparse_bm25 向量，无需额外 Embedding 模型。
+
+        Args:
+            name: collection 名
+            dimension: dense 向量维度
+            analyzer_type: 分词器类型（chinese / english / standard），默认 chinese
+
+        Raises:
+            ImportError: pymilvus < 2.5（不支持 Function / SPARSE_FLOAT_VECTOR）
+            RuntimeError: Milvus 版本 < 2.5
+        """
+        def _op():
+            client = self._connect()
+            if client.has_collection(name):
+                logger.debug("Collection %s already exists, skip create", name)
+                return
+
+            # 检查 pymilvus 版本是否支持 BM25 Function
+            try:
+                from pymilvus import (  # type: ignore[import-not-found,import-untyped]
+                    DataType,
+                    Function,
+                    FunctionType,
+                )
+            except ImportError as e:
+                raise ImportError(
+                    "BM25 full-text search requires pymilvus>=2.5. "
+                    "Current version doesn't support Function/FunctionType. "
+                    "Upgrade with: pip install 'pymilvus>=2.5'"
+                ) from e
+
+            logger.info(
+                "Creating BM25 collection: name=%s dim=%d analyzer=%s",
+                name, dimension, analyzer_type,
+            )
+
+            schema = client.create_schema(
+                auto_id=True,
+                enable_dynamic_field=True,
+            )
+
+            # 分词器参数
+            analyzer_params = {"type": analyzer_type}
+
+            # 字段定义
+            schema.add_field(
+                field_name=self._id_field,
+                datatype=DataType.INT64,
+                is_primary=True,
+                auto_id=True,
+            )
+            schema.add_field(
+                field_name=self._text_field,
+                datatype=DataType.VARCHAR,
+                max_length=65535,
+                enable_analyzer=True,
+                analyzer_params=analyzer_params,
+                enable_match=True,
+            )
+            schema.add_field(
+                field_name=self._FIELD_SPARSE,
+                datatype=DataType.SPARSE_FLOAT_VECTOR,
+            )
+            schema.add_field(
+                field_name=self._vector_field,
+                datatype=DataType.FLOAT_VECTOR,
+                dim=dimension,
+            )
+            schema.add_field(
+                field_name=self._metadata_field,
+                datatype=DataType.JSON,
+            )
+
+            # BM25 Function：自动将 text 转为 sparse_bm25 向量
+            bm25_function = Function(
+                name="bm25",
+                function_type=FunctionType.BM25,
+                input_field_names=[self._text_field],
+                output_field_names=self._FIELD_SPARSE,
+            )
+            schema.add_function(bm25_function)
+
+            # 索引定义
+            index_params = client.prepare_index_params()
+            # Dense 向量索引
+            index_params.add_index(
+                field_name=self._vector_field,
+                index_type=self._index_type,
+                metric_type=self._metric_type,
+            )
+            # BM25 sparse 向量索引
+            index_params.add_index(
+                field_name=self._FIELD_SPARSE,
+                index_type="SPARSE_WAND",
+                metric_type="BM25",
+            )
+
+            client.create_collection(
+                collection_name=name,
+                schema=schema,
+                index_params=index_params,
+            )
+            client.load_collection(name)
+
+        try:
+            await asyncio.to_thread(_op)
+        except Exception as e:
+            # 给出更友好的错误提示
+            if "Function" in str(e) or "SPARSE" in str(e):
+                raise RuntimeError(
+                    f"Failed to create BM25 collection. "
+                    f"Ensure Milvus >= 2.5 and pymilvus >= 2.5. Error: {e}"
+                ) from e
+            raise
+        logger.info("BM25 collection %s ready (dim=%d)", name, dimension)
+
+    async def search_sparse(
+        self,
+        collection: str,
+        query_text: str,
+        top_k: int = 10,
+        filter_expr: dict | None = None,
+    ) -> list[SearchResult]:
+        """纯 BM25 全文检索（Milvus 2.5+）。
+
+        直接传入文本查询，Milvus 自动分词并计算 BM25 分数。
+        无需调用方做 embedding。
+
+        Args:
+            collection: collection 名（须由 create_collection_with_bm25 创建）
+            query_text: 查询文本（原样传入，Milvus 内部分词）
+            top_k: 返回结果数
+            filter_expr: metadata 过滤条件
+        """
+        def _op() -> list[SearchResult]:
+            client = self._connect()
+            if not client.has_collection(collection):
+                raise ValueError(f"Collection '{collection}' 不存在")
+            expr = to_milvus_expr(filter_expr)
+            search_params = {"metric_type": "BM25", "params": {"drop_ratio_search": 0.2}}
+            res = client.search(
+                collection_name=collection,
+                data=[query_text],
+                anns_field=self._FIELD_SPARSE,
+                limit=top_k,
+                filter=expr or "",
+                search_params=search_params,
+                output_fields=[self._text_field, self._metadata_field],
+            )
+            hits = res[0] if res else []
+            results: list[SearchResult] = []
+            for h in hits:
+                meta = h.get(self._metadata_field, h.get("metadata", {})) or {}
+                original_id = meta.pop("_doc_id", None) or str(
+                    h.get(self._id_field, h.get("id", ""))
+                )
+                results.append(
+                    SearchResult(
+                        id=original_id,
+                        text=h.get(self._text_field, h.get("text", "")),
+                        score=float(h.get("distance", 0.0)),
+                        metadata=meta,
+                    )
+                )
+            return results
+
+        return await asyncio.to_thread(_op)
+
+    async def hybrid_search(
+        self,
+        collection: str,
+        query_vector: list[float],
+        query_text: str,
+        top_k: int = 10,
+        filter_expr: dict | None = None,
+        dense_weight: float = 0.6,
+        rrf_k: int = 60,
+    ) -> list[SearchResult]:
+        """Dense + BM25 混合检索 + RRF 融合（Milvus 2.5+ 原生）。
+
+        用 Milvus 的 hybrid_search API + RRFRanker 在服务端完成融合，
+        无需客户端拉取两路结果再合并。
+
+        Args:
+            collection: collection 名（须由 create_collection_with_bm25 创建）
+            query_vector: dense 查询向量
+            query_text: 查询文本（用于 BM25）
+            top_k: 最终返回结果数
+            filter_expr: metadata 过滤条件
+            dense_weight: dense 权重（0~1，sparse 权重 = 1 - dense_weight）
+                          注意：RRFRanker 不直接使用 weight，而是通过 rank 输入顺序
+                          影响。这里用 rrf_k 控制平滑度。
+            rrf_k: RRF 常数（越大越平滑）
+        """
+        def _op() -> list[SearchResult]:
+            from pymilvus import (  # type: ignore[import-not-found,import-untyped]
+                AnnSearchRequest,
+                RRFRanker,
+            )
+
+            client = self._connect()
+            if not client.has_collection(collection):
+                raise ValueError(f"Collection '{collection}' 不存在")
+            expr = to_milvus_expr(filter_expr)
+
+            # Dense 检索请求
+            dense_params = {"metric_type": self._metric_type}
+            request_dense = AnnSearchRequest(
+                [query_vector], self._vector_field, dense_params, limit=top_k * 4,
+                expr=expr or "",
+            )
+
+            # BM25 检索请求
+            sparse_params = {"metric_type": "BM25", "params": {"drop_ratio_search": 0.2}}
+            request_sparse = AnnSearchRequest(
+                [query_text], self._FIELD_SPARSE, sparse_params, limit=top_k * 4,
+                expr=expr or "",
+            )
+
+            # RRF 融合
+            ranker = RRFRanker(rrf_k)
+            res = client.hybrid_search(
+                collection_name=collection,
+                reqs=[request_dense, request_sparse],
+                ranker=ranker,
+                limit=top_k,
+                output_fields=[self._text_field, self._metadata_field],
+            )
+            hits = res[0] if res else []
+            results: list[SearchResult] = []
+            for h in hits:
+                meta = h.get(self._metadata_field, h.get("metadata", {})) or {}
+                original_id = meta.pop("_doc_id", None) or str(
+                    h.get(self._id_field, h.get("id", ""))
+                )
+                results.append(
+                    SearchResult(
+                        id=original_id,
+                        text=h.get(self._text_field, h.get("text", "")),
+                        score=float(h.get("distance", 0.0)),
+                        metadata=meta,
+                    )
+                )
+            return results
+
+        return await asyncio.to_thread(_op)
 
     async def drop_collection(self, name: str) -> None:
         def _op():

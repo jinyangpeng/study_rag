@@ -37,12 +37,15 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from ..capabilities.retrieval import RetrievalStrategy
 from ..jobs import (
     JobManager,
     JobStatus,
     run_chunking_pipeline,
 )
+from ..knowledge_bases import config_store
 from ..knowledge_bases import manager as _mgr_mod
+from ..knowledge_bases.config_store import ConfigNotFoundError
 from ..knowledge_bases.manager import (
     ComponentUnavailableError,
     DocumentCreate,
@@ -80,10 +83,6 @@ from ..knowledge_bases.registry import (
     get_registry,
     update_kb,
 )
-from ..knowledge_bases import config_store
-from ..knowledge_bases.config_store import ConfigNotFoundError
-from ..mcp.context import MCPContext
-from ..mcp.tools.search import search_kb as mcp_search_kb
 from ..observability.logging import get_logger
 from ..observability.metrics import AdminMetrics, get_metrics
 from ..observability.ratelimit import get_admin_limiter
@@ -393,6 +392,64 @@ async def list_rerankers_endpoint(
 ) -> list[RerankerInfo]:
     """列出可用 reranker。"""
     return [RerankerInfo(**r) for r in list_available_rerankers()]
+
+
+@router.get(
+    "/retrieval/strategies",
+    summary="列出可用检索策略",
+    description=(
+        "返回系统支持的所有检索策略及其参数说明。\n\n"
+        "用于管理界面：新建/编辑 KB 时选择检索策略。"
+    ),
+)
+async def list_retrieval_strategies_endpoint(
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> list[dict[str, Any]]:
+    """列出可用检索策略。"""
+    from ..capabilities.retrieval import list_retrieval_strategies
+    from ..knowledge_bases.manager import _load_retrieval_config
+
+    strategies = list_retrieval_strategies()
+    config = _load_retrieval_config()
+
+    return [
+        {
+            "name": s,
+            "description": {
+                "dense": "向量语义检索：基于 embedding 向量相似度，语义理解能力强",
+                "sparse": "BM25 关键词检索：纯 Python 内存索引，精确匹配能力强",
+                "hybrid": "融合检索：Dense + Sparse 融合（客户端 RRF），兼顾语义和关键词",
+                "sparse_milvus": "Milvus 2.5+ 原生 BM25 全文检索：服务端分词+评分，无需额外模型",
+                "hybrid_milvus": "Milvus 2.5+ 原生混合检索：Dense+BM25 服务端 RRF 融合",
+            }.get(s, ""),
+            "params": {
+                "dense": config.dense.model_dump(),
+                "sparse": config.sparse.model_dump(),
+                "hybrid": config.hybrid.model_dump(),
+                "sparse_milvus": config.milvus_bm25.model_dump(),
+                "hybrid_milvus": config.milvus_bm25.model_dump(),
+            }.get(s, {}),
+            "is_default": s == config.default_strategy.value,
+        }
+        for s in strategies
+    ]
+
+
+@router.get(
+    "/retrieval/config",
+    summary="获取检索策略全局配置",
+    description="返回 retrieval.yaml 的完整配置（含各策略默认参数）。",
+)
+async def get_retrieval_config_endpoint(
+    _: Annotated[str, Depends(admin_auth_dep)],
+    __: Annotated[str, Depends(admin_ratelimit_dep)],
+) -> dict[str, Any]:
+    """获取检索策略全局配置。"""
+    from ..knowledge_bases.manager import _load_retrieval_config
+
+    config = _load_retrieval_config()
+    return config.model_dump()
 
 
 # ===== Embedder / Reranker 配置管理（CRUD，写 YAML + 热加载） =====
@@ -1468,11 +1525,15 @@ async def delete_document(
         '  "query": "React 性能优化",\n'
         '  "top_k": 5,\n'
         '  "use_rerank": true,\n'
+        '  "strategy": "hybrid",\n'
+        '  "strategy_params": {"dense_weight": 0.7},\n'
         '  "filter_expr": {"source": "wiki"}\n'
         "}\n"
         "```\n\n"
         "**filter_expr**：metadata 过滤表达式，支持 `==` / `!=` / `in` / `and` / `or`。\n"
-        "示例：`{\"source\": \"wiki\"}`、`{\"year\": {\"$gte\": 2024}}`。"
+        "示例：`{\"source\": \"wiki\"}`、`{\"year\": {\"$gte\": 2024}}`。\n\n"
+        "**strategy**：检索策略，可选 `dense` / `sparse` / `hybrid`，不传时使用 KB 配置的策略。\n\n"
+        "**strategy_params**：策略参数覆盖，如 `{\"dense_weight\": 0.7, \"rrf_k\": 30}`。"
     ),
     responses={
         200: {
@@ -1482,6 +1543,7 @@ async def delete_document(
                     "example": {
                         "kb_id": "rd_frontend",
                         "query": "React 性能优化",
+                        "strategy": "hybrid",
                         "hits": [
                             {
                                 "doc_id": "react_perf_001",
@@ -1513,6 +1575,8 @@ async def search_kb_admin(
         "query": "...",
         "top_k": 5,
         "use_rerank": true,
+        "strategy": "hybrid",  // 可选：dense/sparse/hybrid
+        "strategy_params": {"dense_weight": 0.7},  // 可选
         "filter_expr": {"source": "wiki"}  // 可选
       }
     """
@@ -1524,23 +1588,36 @@ async def search_kb_admin(
     use_rerank = bool(body.get("use_rerank", True))
     filter_expr = body.get("filter_expr")
     reranker_name = body.get("reranker_name")  # 可选，覆盖 KB 默认 reranker
+    strategy = body.get("strategy")  # 可选：dense/sparse/hybrid
+    strategy_params = body.get("strategy_params")  # 可选，策略参数覆盖
 
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
 
-    # 复用 MCP 后端（保证 admin 和 MCP 行为完全一致）
-    ctx = MCPContext.default()
+    # 校验 strategy 参数
+    effective_strategy: RetrievalStrategy | None = None
+    if strategy:
+        try:
+            effective_strategy = RetrievalStrategy(strategy)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid strategy: {strategy}. Available: {[s.value for s in RetrievalStrategy]}",
+            ) from e
+
+    # 直接调用 manager.search_via_strategy 拿到完整 RetrievalResponse（含 meta）
+    manager = get_manager()
     start = time.perf_counter()
     try:
-        hits = await mcp_search_kb(
-            api_key="admin",
+        response = await manager.search_via_strategy(
             kb_id=kb_id,
             query=query,
-            top_k=top_k,
+            top_k=top_k or 5,
             use_rerank=use_rerank,
+            strategy=effective_strategy,
+            params=strategy_params,
             filter_expr=filter_expr,
             reranker_name=reranker_name,
-            ctx=ctx,
         )
     except Exception as e:
         log.warning("admin_search_failed", kb_id=kb_id, error=str(e))
@@ -1558,11 +1635,14 @@ async def search_kb_admin(
     get_metrics().observe(
         AdminMetrics.LATENCY, duration_ms, {"endpoint": "search"}
     )
+
     return {
         "kb_id": kb_id,
         "query": query,
-        "hits": [h.model_dump() for h in hits],
+        "strategy": response.strategy.value,
+        "hits": [h.model_dump() for h in response.results],
         "duration_ms": round(duration_ms, 2),
+        "meta": response.meta,
     }
 
 

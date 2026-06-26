@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..capabilities.embedding import Embedder, EmbeddingConfig, create_embedder
 from ..capabilities.reranker import Reranker, RerankerConfig, create_reranker
+from ..capabilities.retrieval import (
+    RetrievalConfig,
+    RetrievalEngine,
+    RetrievalRequest,
+    RetrievalResponse,
+    RetrievalStrategy,
+    create_retrieval_engine,
+)
 from ..capabilities.vector_store import (
     VectorRecord,
     VectorStore,
@@ -142,6 +150,9 @@ class KnowledgeBaseManager:
         若 KB 引用的 embedder 未加载（缺依赖被跳过），跳过该 KB 不抛错。
         这样部分 provider 不可用时服务仍能起来（用 in-memory fallback 或后续修复）。
 
+        检索策略为 sparse_milvus / hybrid_milvus 时，创建带 BM25 的 collection
+        （需 Milvus 2.5+）；其它策略创建普通 dense collection。
+
         Returns:
             True  - collection 创建成功
             False - 跳过（embedder 缺失）
@@ -159,10 +170,41 @@ class KnowledgeBaseManager:
                 ),
             )
             return False
-        await self._vector_store.create_collection(
-            name=cfg.collection,
-            dimension=embedder.dimension,
-        )
+
+        # 根据检索策略决定创建哪种 collection
+        global_cfg = self.get_retrieval_config()
+        effective_strategy = _resolve_strategy(cfg, global_cfg)
+        if effective_strategy in (
+            RetrievalStrategy.SPARSE_MILVUS,
+            RetrievalStrategy.HYBRID_MILVUS,
+        ):
+            # 合并参数获取 analyzer_type
+            merged = _merge_strategy_params(
+                effective_strategy, global_cfg, cfg.retrieval_params, None
+            )
+            analyzer_type = merged.get("analyzer_type", "chinese")
+            try:
+                await self._vector_store.create_collection_with_bm25(
+                    name=cfg.collection,
+                    dimension=embedder.dimension,
+                    analyzer_type=analyzer_type,
+                )
+            except (AttributeError, ImportError, RuntimeError) as e:
+                # vector_store 不支持 BM25 或 Milvus 版本不够
+                logger.error(
+                    "kb_init_bm25_failed",
+                    kb_id=kb_id,
+                    strategy=effective_strategy.value,
+                    error=str(e),
+                    hint="Ensure Milvus >= 2.5 and pymilvus >= 2.5, "
+                    "or change KB retrieval_strategy to dense/sparse/hybrid",
+                )
+                return False
+        else:
+            await self._vector_store.create_collection(
+                name=cfg.collection,
+                dimension=embedder.dimension,
+            )
         self._docs.setdefault(kb_id, {})
         return True
 
@@ -219,6 +261,7 @@ class KnowledgeBaseManager:
                 chunk_count=await self.get_total_chunk_count(cfg.kb_id),
                 embedder=cfg.embedding,
                 reranker=cfg.reranker,
+                retrieval_strategy=cfg.retrieval_strategy,
                 vector_store=vs_provider,
                 collection=cfg.collection,
             )
@@ -252,6 +295,7 @@ class KnowledgeBaseManager:
             chunk_count=await self.get_total_chunk_count(kb_id),
             embedder=cfg.embedding,
             reranker=cfg.reranker,
+            retrieval_strategy=cfg.retrieval_strategy,
             vector_store=vs_provider,
             collection=cfg.collection,
         )
@@ -303,6 +347,8 @@ class KnowledgeBaseManager:
         async with self._lock:
             self._docs.setdefault(doc.kb_id, {})[doc.doc_id] = meta
         self._save_docs_to_disk()
+        # 文档变更 → 失效检索引擎缓存（Sparse 的 BM25 索引需重建）
+        await self._invalidate_retrieval_engines(doc.kb_id)
         return meta
 
     def get_document(self, kb_id: str, doc_id: str) -> DocumentMeta | None:
@@ -343,6 +389,9 @@ class KnowledgeBaseManager:
             existed = self._docs.get(kb_id, {}).pop(doc_id, None) is not None
         if existed:
             self._save_docs_to_disk()
+        # 文档变更 → 失效检索引擎缓存（Sparse 的 BM25 索引需重建）
+        if existed:
+            await self._invalidate_retrieval_engines(kb_id)
         return existed
 
     def list_documents(self, kb_id: str) -> list[DocumentMeta]:
@@ -558,8 +607,8 @@ class KnowledgeBaseManager:
 
         Returns: True=成功替换, False=配置不存在或加载失败
         """
-        from . import config_store
         from ..capabilities.embedding.base import _resolve_env
+        from . import config_store
 
         try:
             raw = config_store.get_reranker_config_raw(name)
@@ -637,6 +686,166 @@ class KnowledgeBaseManager:
             }
             for r in results
         ]
+
+    # ---- 策略化检索（Dense / Sparse / Hybrid） ----
+
+    def get_retrieval_config(self) -> RetrievalConfig:
+        """获取检索策略全局配置（从 retrieval.yaml 加载）。"""
+        if not hasattr(self, "_retrieval_config"):
+            self._retrieval_config = _load_retrieval_config()
+        return self._retrieval_config
+
+    async def _invalidate_retrieval_engines(self, kb_id: str) -> None:
+        """使 KB 对应的检索引擎缓存失效。
+
+        文档增删后调用，确保 Sparse 引擎的 BM25 索引在下次检索时重建。
+        Dense / Hybrid 引擎本身无状态（直接查向量库），但清理缓存让参数
+        变更也能即时生效。
+
+        此方法是 async 的，因为 Sparse 引擎的 invalidate_index 需要获取
+        asyncio.Lock（与 _ensure_index 互斥，避免索引构建中被清空）。
+        """
+        if not hasattr(self, "_retrieval_engines"):
+            return
+        keys_to_remove = [k for k in self._retrieval_engines if k.startswith(f"{kb_id}:")]
+        for k in keys_to_remove:
+            engine = self._retrieval_engines.pop(k, None)
+            # Sparse 引擎有内存 BM25 索引，显式释放（需 await 获取锁）
+            if engine is not None and hasattr(engine, "invalidate_index"):
+                await engine.invalidate_index()
+            logger.info("retrieval_engine_cache_invalidated", kb_id=kb_id, cache_key=k)
+
+    def get_retrieval_engine(
+        self,
+        kb_id: str,
+        strategy: RetrievalStrategy | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> RetrievalEngine:
+        """获取 KB 对应的检索引擎（懒构造，单例缓存）。
+
+        策略选择优先级：
+          1. 参数 strategy（显式指定）
+          2. KB 配置的 retrieval_strategy
+          3. 全局默认策略（retrieval.yaml 的 default_strategy）
+
+        参数覆盖优先级：
+          1. 参数 params（显式指定）
+          2. KB 配置的 retrieval_params
+          3. 全局默认参数（retrieval.yaml 各策略参数）
+        """
+        if not hasattr(self, "_retrieval_engines"):
+            self._retrieval_engines: dict[str, RetrievalEngine] = {}
+
+        # 缓存 key = kb_id + strategy（不同策略可能共存）
+        cfg = self._registry.get_required(kb_id)
+        effective_strategy = strategy or _resolve_strategy(cfg, self.get_retrieval_config())
+        cache_key = f"{kb_id}:{effective_strategy.value}"
+
+        if cache_key in self._retrieval_engines:
+            return self._retrieval_engines[cache_key]
+
+        # 合并参数：全局默认 < KB 配置 < 显式指定
+        global_cfg = self.get_retrieval_config()
+        merged_params = _merge_strategy_params(
+            effective_strategy, global_cfg, cfg.retrieval_params, params
+        )
+
+        engine = create_retrieval_engine(
+            strategy=effective_strategy,
+            embedder=self.get_embedder(kb_id),
+            vector_store=self._vector_store,
+            collection=cfg.collection,
+            reranker=self.get_reranker_for_kb(kb_id),
+            params=merged_params,
+        )
+
+        self._retrieval_engines[cache_key] = engine
+        logger.info(
+            "retrieval_engine_created",
+            kb_id=kb_id,
+            strategy=effective_strategy.value,
+            cache_key=cache_key,
+        )
+        return engine
+
+    async def search_via_strategy(
+        self,
+        kb_id: str,
+        query: str,
+        top_k: int = 5,
+        use_rerank: bool = True,
+        strategy: RetrievalStrategy | None = None,
+        params: dict[str, Any] | None = None,
+        filter_expr: dict[str, Any] | None = None,
+        reranker_name: str | None = None,
+    ) -> RetrievalResponse:
+        """用策略化检索接口执行搜索。
+
+        Args:
+            kb_id: 知识库 ID
+            query: 检索查询
+            top_k: 返回结果数
+            use_rerank: 是否启用 rerank
+            strategy: 检索策略（None = 使用 KB 配置 / 全局默认）
+            params: 策略参数覆盖
+            filter_expr: metadata 过滤条件
+            reranker_name: 显式指定 reranker（覆盖 KB 默认）
+
+        Returns:
+            RetrievalResponse: 检索结果
+        """
+        # 处理 reranker_name 覆盖
+        effective_reranker = None
+        if use_rerank:
+            if reranker_name:
+                try:
+                    effective_reranker = self.get_reranker(reranker_name)
+                except ComponentUnavailableError:
+                    effective_reranker = self.get_reranker_for_kb(kb_id)
+            else:
+                effective_reranker = self.get_reranker_for_kb(kb_id)
+
+        # 获取检索引擎
+        engine = self.get_retrieval_engine(kb_id, strategy=strategy, params=params)
+
+        # 解析最终策略 + 合并参数（用于请求记录与 reranker 覆盖场景）
+        cfg = self._registry.get_required(kb_id)
+        global_cfg = self.get_retrieval_config()
+        effective_strategy = strategy or _resolve_strategy(cfg, global_cfg)
+        merged_params = _merge_strategy_params(
+            effective_strategy, global_cfg, cfg.retrieval_params, params
+        )
+
+        # 如果指定了不同的 reranker，需要重新创建引擎（绕过缓存，因缓存 key 不含 reranker）
+        if effective_reranker is not None and reranker_name:
+            engine = create_retrieval_engine(
+                strategy=effective_strategy,
+                embedder=self.get_embedder(kb_id),
+                vector_store=self._vector_store,
+                collection=cfg.collection,
+                reranker=effective_reranker,
+                params=merged_params,
+            )
+
+        request = RetrievalRequest(
+            kb_id=kb_id,
+            query=query,
+            top_k=top_k,
+            use_rerank=use_rerank,
+            strategy=effective_strategy,
+            strategy_params=merged_params,
+            filter_expr=filter_expr,
+            reranker_name=reranker_name,
+        )
+
+        # 通过熔断器执行检索，保护下游（vector store / embedder / reranker）
+        # 连续失败超过阈值时熔断，快速失败而非逐个超时
+        from ..observability.circuit_breaker import get_search_breaker
+
+        async def _do_retrieve() -> RetrievalResponse:
+            return await engine.retrieve(request)
+
+        return await get_search_breaker().call(_do_retrieve)
 
     async def add_document_chunked(
         self,
@@ -717,6 +926,8 @@ class KnowledgeBaseManager:
         async with self._lock:
             self._docs.setdefault(kb_id, {})[doc_id] = meta
         self._save_docs_to_disk()
+        # 文档变更 → 失效检索引擎缓存（Sparse 的 BM25 索引需重建）
+        await self._invalidate_retrieval_engines(kb_id)
         return count
 
     async def add_document_from_upload(
@@ -813,6 +1024,8 @@ class KnowledgeBaseManager:
         async with self._lock:
             self._docs.setdefault(kb_id, {})[doc_id] = meta
         self._save_docs_to_disk()
+        # 文档变更 → 失效检索引擎缓存（Sparse 的 BM25 索引需重建）
+        await self._invalidate_retrieval_engines(kb_id)
         return count
 
 
@@ -1150,3 +1363,74 @@ async def delete_kb_collection(kb_id: str) -> None:
     # 清空 llamaindex 引擎缓存
     if hasattr(_manager_singleton, "_li_engines"):  # type: ignore[attr-defined]
         _manager_singleton._li_engines.pop(kb_id, None)  # type: ignore[attr-defined]
+    # 清空策略化检索引擎缓存
+    await _manager_singleton._invalidate_retrieval_engines(kb_id)  # type: ignore[attr-defined]
+
+
+# ===== 检索策略辅助函数 =====
+
+
+def _load_retrieval_config() -> RetrievalConfig:
+    """从 retrieval.yaml 加载检索策略配置。"""
+    path = AppPaths.RETRIEVAL_CONFIG
+    if not path.exists():
+        logger.info("retrieval_config_not_found_using_defaults")
+        return RetrievalConfig()
+
+    import yaml
+
+    with path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    raw = data.get("retrieval", {})
+
+    return RetrievalConfig(**raw)
+
+
+def _resolve_strategy(
+    cfg: Any,  # KnowledgeBaseConfig
+    global_cfg: RetrievalConfig,
+) -> RetrievalStrategy:
+    """解析 KB 实际使用的检索策略。
+
+    优先级：KB 配置 > 全局默认
+    """
+    if cfg.retrieval_strategy:
+        try:
+            return RetrievalStrategy(cfg.retrieval_strategy)
+        except ValueError:
+            logger.warning(
+                "invalid_retrieval_strategy_fallback_to_default",
+                kb_id=cfg.kb_id,
+                strategy=cfg.retrieval_strategy,
+                default=global_cfg.default_strategy.value,
+            )
+    return global_cfg.default_strategy
+
+
+def _merge_strategy_params(
+    strategy: RetrievalStrategy,
+    global_cfg: RetrievalConfig,
+    kb_params: dict[str, Any],
+    request_params: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """合并策略参数：全局默认 < KB 配置 < 请求覆盖。"""
+    # 全局默认参数
+    if strategy == RetrievalStrategy.DENSE:
+        base = global_cfg.dense.model_dump()
+    elif strategy == RetrievalStrategy.SPARSE:
+        base = global_cfg.sparse.model_dump()
+    elif strategy == RetrievalStrategy.HYBRID:
+        base = global_cfg.hybrid.model_dump()
+    elif strategy in (RetrievalStrategy.SPARSE_MILVUS, RetrievalStrategy.HYBRID_MILVUS):
+        base = global_cfg.milvus_bm25.model_dump()
+    else:
+        base = {}
+
+    # KB 配置覆盖
+    base.update(kb_params)
+
+    # 请求级覆盖
+    if request_params:
+        base.update(request_params)
+
+    return base

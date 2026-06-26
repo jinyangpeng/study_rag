@@ -19,7 +19,9 @@ def test_list_parsers_returns_all_yaml_entries():
     # 3 个 semantic 变体（Phase 9.0/9.1）
     assert "semantic_aggressive" in names
     assert "semantic_conservative" in names
-    assert len(names) == 8
+    # 1 个 sentence 变体
+    assert "sentence_256" in names
+    assert len(names) == 9
 
 
 def test_get_parser_returns_factory():

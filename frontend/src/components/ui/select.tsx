@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 export const Select = SelectPrimitive.Root;
 export const SelectGroup = SelectPrimitive.Group;
 export const SelectValue = SelectPrimitive.Value;
+export const SelectItemText = SelectPrimitive.ItemText;
 
 export const SelectTrigger = forwardRef<
   ElementRef<typeof SelectPrimitive.Trigger>,
@@ -120,7 +121,10 @@ export const SelectItem = forwardRef<
         <Check className="size-4" />
       </SelectPrimitive.ItemIndicator>
     </span>
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    {/* 直接渲染 children，业务方按需自行用 SelectItemText 标记 trigger 显示值。
+        说明：Radix 要求 SelectItem 内有 SelectItemText 才能让 SelectValue 拿到值；
+        业务方在每个 SelectItem 中显式写一次即可（见 SearchTest.tsx）。 */}
+    {children}
   </SelectPrimitive.Item>
 ));
 SelectItem.displayName = "SelectItem";

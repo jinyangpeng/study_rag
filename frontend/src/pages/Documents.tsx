@@ -48,6 +48,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectItemText,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -244,8 +245,12 @@ export default function Documents() {
               {kbs.map((k) => (
                 <SelectItem key={k.kb_id} value={k.kb_id}>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono">{k.kb_id}</span>
-                    <span className="text-fg-muted">· {k.name}</span>
+                    {/* 主值：trigger 显示 */}
+                    <SelectItemText>
+                      <span className="font-mono">{k.kb_id}</span>
+                    </SelectItemText>
+                    {/* 描述：仅展开时显示 */}
+                    <span className="text-[10px] text-fg-muted">· {k.name}</span>
                   </div>
                 </SelectItem>
               ))}

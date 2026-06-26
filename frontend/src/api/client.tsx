@@ -574,6 +574,10 @@ class ApiClient {
       /** 覆盖 KB 默认 reranker；null/undefined 表示用 KB 配置的 */
       reranker_name?: string | null;
       filter_expr?: Record<string, unknown> | null;
+      /** 检索策略：dense / sparse / hybrid */
+      strategy?: string | null;
+      /** 策略参数覆盖 */
+      strategy_params?: Record<string, unknown> | null;
     }
   ): Promise<SearchResponse> {
     try {
@@ -581,6 +585,52 @@ class ApiClient {
         `/admin/kbs/${encodeURIComponent(kbId)}/search`,
         body
       );
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  // ===== Retrieval Strategies =====
+
+  async listRetrievalStrategies(): Promise<
+    Array<{
+      name: string;
+      description: string;
+      params: Record<string, unknown>;
+      is_default: boolean;
+    }>
+  > {
+    try {
+      const { data } = await this.http.get<
+        Array<{
+          name: string;
+          description: string;
+          params: Record<string, unknown>;
+          is_default: boolean;
+        }>
+      >("/admin/retrieval/strategies");
+      return data;
+    } catch (e) {
+      throw new Error(this.unwrapError(e));
+    }
+  }
+
+  async getRetrievalConfig(): Promise<{
+    default_strategy: string;
+    dense: Record<string, unknown>;
+    sparse: Record<string, unknown>;
+    hybrid: Record<string, unknown>;
+    milvus_bm25: Record<string, unknown>;
+  }> {
+    try {
+      const { data } = await this.http.get<{
+        default_strategy: string;
+        dense: Record<string, unknown>;
+        sparse: Record<string, unknown>;
+        hybrid: Record<string, unknown>;
+        milvus_bm25: Record<string, unknown>;
+      }>("/admin/retrieval/config");
       return data;
     } catch (e) {
       throw new Error(this.unwrapError(e));

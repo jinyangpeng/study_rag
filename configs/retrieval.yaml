@@ -1,0 +1,66 @@
+# 检索策略配置
+#
+# 支持三种检索策略：
+#   - dense   : 向量语义检索（embedding + vector search + 可选 rerank）
+#   - sparse  : BM25 关键词检索（分词 + 倒排索引 + BM25 评分）
+#   - hybrid  : Dense + Sparse 融合（Reciprocal Rank Fusion）
+#
+# 每个知识库可在 knowledge_bases.yaml 的 retrieval_strategy 字段指定策略，
+# 未指定时使用下面的 default_strategy。
+#
+# 各策略的参数可在此全局配置，也可在 API 请求中按次覆盖。
+
+retrieval:
+  # 默认检索策略（KB 未指定时使用）
+  # 可选值: dense / sparse / hybrid
+  default_strategy: dense
+
+  # ============= Dense 检索参数 =============
+  dense:
+    # 多召回倍率：启用 rerank 时 candidate_k = top_k * over_fetch_factor
+    # 越大候选越多，rerank 效果越好，但延迟增加
+    over_fetch_factor: 4
+
+  # ============= Sparse (BM25) 检索参数 =============
+  sparse:
+    # BM25 k1: 词频饱和参数（越大 → 词频影响越大，推荐 1.2~2.0）
+    k1: 1.5
+    # BM25 b: 文档长度归一化参数（0=不归一化, 1=完全归一化，推荐 0.75）
+    b: 0.75
+    # 是否使用 jieba 中文分词（未安装 jieba 时自动降级为正则分词）
+    use_jieba: true
+    # 自定义停用词（可选，高频无意义词）
+    stop_words: []
+
+  # ============= Hybrid 融合检索参数 =============
+  hybrid:
+    # Dense 结果权重（0~1）；Sparse 权重 = 1 - dense_weight
+    # 语义为主 → 0.7~0.8；关键词为主 → 0.3~0.4；均衡 → 0.5~0.6
+    dense_weight: 0.6
+    # Reciprocal Rank Fusion 常数 k（越大分数越平滑，推荐 60）
+    rrf_k: 60
+    # Dense 多召回倍率
+    over_fetch_factor: 4
+    # BM25 参数（同 sparse 部分）
+    k1: 1.5
+    b: 0.75
+    use_jieba: true
+    # 自定义停用词（同 sparse 部分，会透传给 Hybrid 内部的 Sparse 子引擎）
+    stop_words: []
+
+  # ============= Milvus 2.5+ 原生 BM25 检索参数 =============
+  # 适用于 sparse_milvus / hybrid_milvus 策略
+  # 前提：Milvus >= 2.5 + pymilvus >= 2.5
+  # 优势：无需纯 Python BM25 索引、无冷启动、支持超大规模文档集
+  milvus_bm25:
+    # Milvus 分词器类型（影响 BM25 分词效果）
+    # chinese  - 中文分词（适合中文文档）
+    # english  - 英文分词
+    # standard - 标准分词（多语言通用）
+    analyzer_type: chinese
+    # （仅 hybrid_milvus）Dense 权重
+    dense_weight: 0.6
+    # （仅 hybrid_milvus）RRF 常数 k
+    rrf_k: 60
+    # 多召回倍率（启用 rerank 时扩大候选数）
+    over_fetch_factor: 4

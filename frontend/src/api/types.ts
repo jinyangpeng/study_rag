@@ -10,6 +10,7 @@ export interface KnowledgeBaseSummary {
   chunk_count: number;
   embedder?: string | null;
   reranker?: string | null;
+  retrieval_strategy?: string | null;
   vector_store?: string | null;
   collection?: string | null;
 }
@@ -63,8 +64,10 @@ export interface SearchHit {
 export interface SearchResponse {
   kb_id: string;
   query: string;
+  strategy?: string;
   hits: SearchHit[];
   duration_ms: number;
+  meta?: Record<string, unknown>;
 }
 
 export interface RatelimitStats {
@@ -325,4 +328,40 @@ export interface ChunksListResponse {
   limit: number;
   offset: number;
   chunks: ChunkInfo[];
+}
+
+// ===== 检索策略 =====
+
+export interface RetrievalStrategyInfo {
+  name: string;
+  description: string;
+  params: Record<string, unknown>;
+  is_default: boolean;
+}
+
+export interface RetrievalConfig {
+  default_strategy: string;
+  dense: {
+    over_fetch_factor: number;
+  };
+  sparse: {
+    k1: number;
+    b: number;
+    use_jieba: boolean;
+    stop_words: string[];
+  };
+  hybrid: {
+    dense_weight: number;
+    rrf_k: number;
+    over_fetch_factor: number;
+    k1: number;
+    b: number;
+    use_jieba: boolean;
+  };
+  milvus_bm25: {
+    analyzer_type: string;
+    dense_weight: number;
+    rrf_k: number;
+    over_fetch_factor: number;
+  };
 }

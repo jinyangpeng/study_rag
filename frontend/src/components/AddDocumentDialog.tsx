@@ -39,6 +39,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectItemText,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -429,10 +430,14 @@ export default function AddDocumentDialog({
                 {parsers.map((p) => (
                   <SelectItem key={p.name} value={p.name}>
                     <div className="flex items-center gap-2">
+                      {/* 主值：trigger 显示 */}
+                      <SelectItemText>
+                        <span className="font-mono">{p.name}</span>
+                      </SelectItemText>
+                      {/* 描述：仅展开时显示 */}
                       <Badge variant="outline" className="font-normal">
                         {p.strategy}
                       </Badge>
-                      <span className="font-mono">{p.name}</span>
                       <span className="text-[10px] text-fg-muted">
                         size={p.chunk_size}, overlap={p.chunk_overlap}
                       </span>

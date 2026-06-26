@@ -57,6 +57,7 @@ class AppPaths:
     RERANKER_CONFIG = CONFIGS_DIR / "reranker.yaml"
     LLAMAINDEX_CONFIG = CONFIGS_DIR / "llamaindex.yaml"
     LLM_CONFIG = CONFIGS_DIR / "llm.yaml"
+    RETRIEVAL_CONFIG = CONFIGS_DIR / "retrieval.yaml"
     # 运行时持久化数据（重启后从 Milvus 重建 DocumentMeta）
     DATA_DIR = PROJECT_ROOT / "data"
     DOCS_INDEX = DATA_DIR / "docs_index.json"

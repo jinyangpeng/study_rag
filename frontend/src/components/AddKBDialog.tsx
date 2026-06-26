@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Database, Info, Cpu, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Database, Info, CheckCircle2, AlertTriangle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +36,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectItemText,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -314,8 +315,11 @@ export default function AddKBDialog({
                   {embedders.map((e) => (
                     <SelectItem key={e.name} value={e.name}>
                       <div className="flex items-center gap-2">
-                        <Cpu className="size-3" />
-                        <span className="font-mono">{e.name}</span>
+                        {/* 主值：trigger 显示 */}
+                        <SelectItemText>
+                          <span className="font-mono">{e.name}</span>
+                        </SelectItemText>
+                        {/* 描述：仅展开时显示 */}
                         <Badge variant="outline" className="font-normal">
                           {e.provider}
                         </Badge>
@@ -382,13 +386,18 @@ export default function AddKBDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">
-                    <span className="text-fg-muted">（不使用）</span>
+                    <SelectItemText>
+                      <span className="text-fg-muted">（不使用）</span>
+                    </SelectItemText>
                   </SelectItem>
                   {rerankers.map((r) => (
                     <SelectItem key={r.name} value={r.name}>
                       <div className="flex items-center gap-2">
-                        <Cpu className="size-3" />
-                        <span className="font-mono">{r.name}</span>
+                        {/* 主值：trigger 显示 */}
+                        <SelectItemText>
+                          <span className="font-mono">{r.name}</span>
+                        </SelectItemText>
+                        {/* 描述：仅展开时显示 */}
                         <Badge variant="outline" className="font-normal">
                           {r.provider}
                         </Badge>
