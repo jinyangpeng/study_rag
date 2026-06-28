@@ -39,3 +39,4 @@ Null.*
 
 # Runtime state (regenerated on every operation)
 data/docs_index.json
+.codebuddy/

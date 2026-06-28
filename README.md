@@ -1,6 +1,40 @@
 # study_rag
 
-基于 LlamaIndex 的企业知识库检索服务，通过 MCP 协议提供给 Agent 调用。
+> 基于 LlamaIndex 的企业知识库检索服务，通过 MCP 协议暴露给 Agent 调用。
+>
+> Enterprise knowledge base retrieval service built on LlamaIndex, exposed to AI agents via MCP.
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688)](https://fastapi.tiangolo.com/)
+[![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-black)](https://modelcontextprotocol.io/)
+[![Milvus](https://img.shields.io/badge/Milvus-2.5%2B-green)](https://milvus.io/)
+[![React](https://img.shields.io/badge/React-Vite%2BTS-61dafb)](https://react.dev/)
+
+## 项目简介
+
+study_rag 是一个可插拔、多租户的企业级 RAG（检索增强生成）知识库服务。它把「知识库管理 + 文档处理 + 多策略检索」打包成一组能力，既提供 **MCP Tool** 供 AI Agent 直接调用，也提供 **Admin REST + Web 控制台** 供人工管理。
+
+核心价值：
+- **Agent 即用**：符合 MCP 规范，Claude / Cursor / 任意 MCP 客户端接上即可检索你的知识库
+- **多策略检索**：Dense / Sparse / Hybrid / Milvus 原生 BM25 / Hybrid-Milvus 五种策略可按请求切换
+- **能力可插拔**：Embedding / VectorStore / Reranker / Parser 均为接口化设计，配置即切换
+- **生产就绪**：structlog 结构化日志、Prometheus 指标、限流、熔断、Docker Compose 一键部署
+
+## 技术栈
+
+| 层 | 技术 |
+|---|---|
+| 后端 | Python 3.10+、FastAPI、Pydantic、structlog |
+| 检索框架 | LlamaIndex（NodeParser 切块）、自研 RetrievalEngine 抽象 |
+| 向量库 | Milvus 2.5+（原生 BM25）、可扩展 Qdrant / InMemory |
+| Embedding | OpenAI / Ollama / BGE，接口化可替换 |
+| Reranker | BGE / Cohere / TEI，接口化可替换 |
+| MCP | FastMCP、Streamable HTTP transport |
+| 前端 | React + Vite + TypeScript + shadcn/ui |
+| 可观测 | Prometheus 指标、structlog 日志、限流、熔断 |
+| 部署 | Docker Compose（admin + mcp 双进程）、tini、非 root |
+| 工程化 | ruff（lint）、pytest、justfile、TypeScript typecheck |
 
 ## 特性
 
