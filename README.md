@@ -42,27 +42,39 @@ study_rag 是一个可插拔、多租户的企业级 RAG（检索增强生成）
 
 <table>
   <tr>
-    <td width="50%" align="center"><b>仪表盘 Dashboard</b></td>
-    <td width="50%" align="center"><b>知识库管理</b></td>
+    <td align="center"><b>仪表盘 Dashboard</b></td>
   </tr>
   <tr>
     <td><img src="docs/images/dashboard.png" alt="Dashboard 仪表盘" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>知识库管理</b></td>
+  </tr>
+  <tr>
     <td><img src="docs/images/knowledge-bases.png" alt="知识库管理" /></td>
   </tr>
   <tr>
-    <td width="50%" align="center"><b>文档管理</b></td>
-    <td width="50%" align="center"><b>检索测试</b></td>
+    <td align="center"><b>文档管理</b></td>
   </tr>
   <tr>
     <td><img src="docs/images/documents.png" alt="文档管理" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>检索测试</b></td>
+  </tr>
+  <tr>
     <td><img src="docs/images/search-test.png" alt="检索测试" /></td>
   </tr>
   <tr>
-    <td width="50%" align="center"><b>模型配置</b></td>
-    <td width="50%" align="center"><b>异步任务</b></td>
+    <td align="center"><b>模型配置</b></td>
   </tr>
   <tr>
     <td><img src="docs/images/model-configs.png" alt="模型配置" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>异步任务</b></td>
+  </tr>
+  <tr>
     <td><img src="docs/images/async-task.png" alt="异步任务" /></td>
   </tr>
 </table>
