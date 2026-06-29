@@ -36,9 +36,7 @@ study_rag 是一个可插拔、多租户的企业级 RAG（检索增强生成）
 | 部署 | Docker Compose（admin + mcp 双进程）、tini、非 root |
 | 工程化 | ruff（lint）、pytest、justfile、TypeScript typecheck |
 
-## 运行截图
-
-> 截图存放于 `docs/images/` 目录，启动 admin 服务（`http://localhost:3200/admin/ui/`）后截图即可。
+## 知识库管理端UI
 
 <table>
   <tr>
@@ -104,7 +102,7 @@ study_rag 是一个可插拔、多租户的企业级 RAG（检索增强生成）
 |---|---|
 | [部署指南](docs/deployment.md) | Docker Compose、镜像构建、Milvus、生产清单、运维操作 |
 | [配置参考](docs/configuration.md) | 所有 YAML 配置文件、环境变量、provider 对照表 |
-| [本文档](#mcp-tool-完整列表) | MCP Tool 完整 API、客户端示例、错误码 |
+| [MCP Tool](#mcp-tool-完整列表) | MCP Tool 完整 API、客户端示例、错误码 |
 
 ## 快速开始
 
