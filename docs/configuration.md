@@ -331,7 +331,7 @@ llm:
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `STUDY_RAG_HOST` | `0.0.0.0` | admin 监听地址 |
-| `STUDY_RAG_PORT` | `8000` | admin 监听端口（容器内 entrypoint 用 8765） |
+| `STUDY_RAG_PORT` | `8000` | admin 监听端口（容器内 entrypoint 用 3200） |
 | `STUDY_RAG_LOG_LEVEL` | `INFO` | 日志级别 |
 | `STUDY_RAG_WORKERS` | `1` | uvicorn workers |
 | `STUDY_RAG_ADMIN_TOKEN` | *(空)* | admin Bearer Token |
@@ -351,7 +351,7 @@ llm:
 |---|---|---|
 | `CONTAINER_ROLE` | `admin` | `admin` / `mcp` 选择启动进程 |
 | `MCP_HOST` | `0.0.0.0` | MCP 监听地址 |
-| `MCP_PORT` | `8001` | MCP 监听端口 |
+| `MCP_PORT` | `3220` | MCP 监听端口 |
 
 ### YAML 占位符（`embeddings.yaml` / `reranker.yaml` / `vector_store.yaml` 引用）
 

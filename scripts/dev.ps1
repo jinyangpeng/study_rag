@@ -9,21 +9,21 @@ param(
 
 switch ($Command) {
     "admin" {
-        Write-Host ">>> 启动 admin REST API (port 8765)" -ForegroundColor Cyan
-        python -m uvicorn study_rag.app:app --host 127.0.0.1 --port 8765 --reload
+        Write-Host ">>> 启动 admin REST API (port 3200)" -ForegroundColor Cyan
+        python -m uvicorn study_rag.app:app --host 127.0.0.1 --port 3200 --reload
     }
     "mcp" {
-        Write-Host ">>> 启动 MCP standalone server (port 8001, streamable_http)" -ForegroundColor Cyan
-        $env:MCP_PORT = "8001"
-        python -m uvicorn study_rag.mcp_standalone:app --host 127.0.0.1 --port 8001 --reload
+        Write-Host ">>> 启动 MCP standalone server (port 3220, streamable_http)" -ForegroundColor Cyan
+        $env:MCP_PORT = "3220"
+        python -m uvicorn study_rag.mcp_standalone:app --host 127.0.0.1 --port 3220 --reload
     }
     "inspector" {
         Write-Host ">>> 启动 MCP Inspector (需先启动 mcp)" -ForegroundColor Cyan
-        Write-Host "    Inspector UI: http://localhost:5173" -ForegroundColor Yellow
-        Write-Host "    MCP endpoint: http://localhost:8001/mcp" -ForegroundColor Yellow
+        Write-Host "    Inspector UI: http://localhost:3210" -ForegroundColor Yellow
+        Write-Host "    MCP endpoint: http://localhost:3220/mcp" -ForegroundColor Yellow
         npx --yes @modelcontextprotocol/inspector `
             --transport streamable-http `
-            --server-url http://localhost:8001/mcp
+            --server-url http://localhost:3220/mcp
     }
     "test" {
         Write-Host ">>> 跑 pytest + 所有 verify 脚本" -ForegroundColor Cyan
@@ -61,8 +61,8 @@ switch ($Command) {
 study_rag 开发脚本
 
 命令:
-  admin        启动 admin REST API (port 8765)
-  mcp          启动 MCP streamable_http server (port 8001)
+  admin        启动 admin REST API (port 3200)
+  mcp          启动 MCP streamable_http server (port 3220)
   inspector    启动 MCP Inspector（需先启动 mcp）
   test         跑 pytest + tests/verify_*.py
   lint         ruff check
@@ -78,9 +78,9 @@ study_rag 开发脚本
 MCP Inspector 调试:
   1. 启动 mcp:   pwsh scripts/dev.ps1 mcp
   2. 启动 inspector: pwsh scripts/dev.ps1 inspector
-  3. 浏览器打开 http://localhost:5173
+  3. 浏览器打开 http://localhost:3210
   4. 选择 transport: streamable_http
-  5. 输入 URL: http://localhost:8001/mcp
+  5. 输入 URL: http://localhost:3220/mcp
   6. 点 Connect -> List Tools -> Call Tool
 
 "@

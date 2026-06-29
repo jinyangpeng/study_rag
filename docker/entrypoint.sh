@@ -5,17 +5,17 @@
 #  环境变量：
 #    CONTAINER_ROLE  : admin | mcp
 #    STUDY_RAG_HOST  : admin 监听地址（默认 0.0.0.0）
-#    STUDY_RAG_PORT  : admin 监听端口（默认 8765）
+#    STUDY_RAG_PORT  : admin 监听端口（默认 3200）
 #    MCP_HOST        : mcp 监听地址（默认 0.0.0.0）
-#    MCP_PORT        : mcp 监听端口（默认 8001）
+#    MCP_PORT        : mcp 监听端口（默认 3220）
 #    STUDY_RAG_LOG_LEVEL : uvicorn 日志级别（默认 info）
 # ============================================
 set -e
 
 ADMIN_HOST="${STUDY_RAG_HOST:-0.0.0.0}"
-ADMIN_PORT="${STUDY_RAG_PORT:-8765}"
+ADMIN_PORT="${STUDY_RAG_PORT:-3200}"
 _MCP_HOST="${MCP_HOST:-0.0.0.0}"
-_MCP_PORT="${MCP_PORT:-8001}"
+_MCP_PORT="${MCP_PORT:-3220}"
 LOG_LEVEL="${STUDY_RAG_LOG_LEVEL:-info}"
 # 转小写（uvicorn 要求 lowercase）
 LOG_LEVEL=$(echo "$LOG_LEVEL" | tr '[:upper:]' '[:lower:]')

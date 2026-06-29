@@ -36,6 +36,37 @@ study_rag 是一个可插拔、多租户的企业级 RAG（检索增强生成）
 | 部署 | Docker Compose（admin + mcp 双进程）、tini、非 root |
 | 工程化 | ruff（lint）、pytest、justfile、TypeScript typecheck |
 
+## 运行截图
+
+> 截图存放于 `docs/images/` 目录，启动 admin 服务（`http://localhost:3200/admin/ui/`）后截图即可。
+
+<table>
+  <tr>
+    <td width="50%" align="center"><b>仪表盘 Dashboard</b></td>
+    <td width="50%" align="center"><b>知识库管理</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/dashboard.png" alt="Dashboard 仪表盘" /></td>
+    <td><img src="docs/images/knowledge-bases.png" alt="知识库管理" /></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><b>文档管理</b></td>
+    <td width="50%" align="center"><b>检索测试</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/documents.png" alt="文档管理" /></td>
+    <td><img src="docs/images/search-test.png" alt="检索测试" /></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><b>模型配置</b></td>
+    <td width="50%" align="center"><b>异步任务</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/model-configs.png" alt="模型配置" /></td>
+    <td><img src="docs/images/async-task.png" alt="异步任务" /></td>
+  </tr>
+</table>
+
 ## 特性
 
 - **多知识库管理**：支持按部门/主题配置多个知识库
@@ -81,10 +112,10 @@ docker compose -f docker/docker-compose.yml --profile vector up -d --build
 #   或: just docker-up-vector
 
 # 端点：
-#   管理 UI      http://localhost:8765/admin/ui/
-#   OpenAPI 文档  http://localhost:8765/docs
-#   MCP 端点      http://localhost:8001/mcp
-#   健康检查      http://localhost:8765/health  /  http://localhost:8001/health
+#   管理 UI      http://localhost:3200/admin/ui/
+#   OpenAPI 文档  http://localhost:3200/docs
+#   MCP 端点      http://localhost:3220/mcp
+#   健康检查      http://localhost:3200/health  /  http://localhost:3220/health
 ```
 
 详见 [部署指南](docs/deployment.md)。
@@ -95,17 +126,17 @@ docker compose -f docker/docker-compose.yml --profile vector up -d --build
 # 安装依赖
 pip install -e ".[dev,llamaindex,vector-milvus,embedding-bge,reranker-bge]"
 
-# 启动 admin REST（port 8765）
+# 启动 admin REST（port 3200）
 study-rag
 
-# 启动 MCP standalone server（port 8001，streamable_http transport）
+# 启动 MCP standalone server（port 3220，streamable_http transport）
 study-rag-mcp
 
 # MCP 端点
-http://localhost:8001/mcp
+http://localhost:3220/mcp
 
 # Admin REST 端点
-http://localhost:8765/admin/docs
+http://localhost:3200/admin/docs
 ```
 
 ### 本地开发
@@ -150,9 +181,9 @@ study_rag/
 **部署拓扑**（两进程独立扩缩容）：
 
 ```
-  Agent / LLM ──MCP──▶  mcp:8001  ──▶  ┌─ embeddings (OpenAI/BGE/Ollama)
+  Agent / LLM ──MCP──▶  mcp:3220  ──▶  ┌─ embeddings (OpenAI/BGE/Ollama)
                                        ├─ rerankers  (BGE/Cohere/TEI)
-  浏览器 ──HTTP──▶  admin:8765 ──▶     └─ vector_store (Milvus/Qdrant/mock)
+  浏览器 ──HTTP──▶  admin:3200 ──▶     └─ vector_store (Milvus/Qdrant/mock)
     └─ /admin/ui/  (React SPA)
     └─ /admin/*    (KB/文档 CRUD)
     └─ /metrics    (Prometheus)
@@ -166,8 +197,8 @@ study_rag/
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `STUDY_RAG_PORT` | `8765` | admin REST 端口 |
-| `MCP_PORT` | `8001` | MCP 端口 |
+| `STUDY_RAG_PORT` | `3200` | admin REST 端口 |
+| `MCP_PORT` | `3220` | MCP 端口 |
 | `STUDY_RAG_LOG_LEVEL` | `INFO` | 日志级别 |
 | `STUDY_RAG_ADMIN_TOKEN` | *(空)* | admin Bearer Token（生产必设） |
 | `STUDY_RAG_MCP_REQUIRE_API_KEY` | `false` | 强制 MCP api_key |
@@ -457,7 +488,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 async def main():
-    async with streamablehttp_client("http://localhost:8001/mcp") as (
+    async with streamablehttp_client("http://localhost:3220/mcp") as (
         read_stream,
         write_stream,
         _get_session_id,
@@ -492,7 +523,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 const client = new Client({ name: "my-agent", version: "1.0.0" });
 const transport = new StreamableHTTPClientTransport(
-  new URL("http://localhost:8001/mcp")
+  new URL("http://localhost:3220/mcp")
 );
 await client.connect(transport);
 
@@ -516,7 +547,7 @@ const hits = JSON.parse(result.content[0].text);
 {
   "mcpServers": {
     "study-rag": {
-      "url": "http://localhost:8001/mcp",
+      "url": "http://localhost:3220/mcp",
       "transport": "streamable_http"
     }
   }
@@ -547,9 +578,9 @@ pwsh scripts/dev.ps1 mcp
 
 # 启动 MCP Inspector（浏览器）
 pwsh scripts/dev.ps1 inspector
-# 浏览器打开 http://localhost:5173
+# 浏览器打开 http://localhost:3210
 # 选 transport: streamable_http
-# URL: http://localhost:8001/mcp
+# URL: http://localhost:3220/mcp
 # Connect → List Tools → 选 Tool → 填参数 → Call Tool
 ```
 

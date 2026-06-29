@@ -22,7 +22,7 @@
 
 [CmdletBinding()]
 param(
-    [int]$McpPort = 8001
+    [int]$McpPort = 3220
 )
 
 # ---- helper ----

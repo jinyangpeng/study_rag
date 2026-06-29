@@ -38,8 +38,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     CONTAINER_ROLE=admin \
-    ADMIN_PORT=8765 \
-    MCP_PORT=8001 \
+    ADMIN_PORT=3200 \
+    MCP_PORT=3220 \
     CONFIG_DIR=/app/configs
 
 WORKDIR /app
@@ -76,7 +76,7 @@ USER appuser
 COPY --chown=appuser:appuser docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 8765 8001
+EXPOSE 3200 3220
 
 # HEALTHCHECK 根据 CONTAINER_ROLE 切换探针端点
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

@@ -9,7 +9,7 @@ import dns from "node:dns";
  *
  * 背景：
  *   - Windows 上 Node 把 `localhost` 默认解析成 ::1 (IPv6) 优先；
- *   - 但开发常见后端启动方式是 `uvicorn --host 127.0.0.1 --port 8765`（只 IPv4）；
+ *   - 但开发常见后端启动方式是 `uvicorn --host 127.0.0.1 --port 3200`（只 IPv4）；
  *   - Vite proxy 不带 agent 时会按 Node 默认走 IPv6，连接被拒 → 500 (空 body)。
  *
  * 行为：
@@ -17,7 +17,7 @@ import dns from "node:dns";
  *   - target 是 `127.0.0.1`            → 直接用，不需要 DNS 解析
  *   - target 是其他域名（如 LAN IP）   → 不做特殊处理，按 OS 默认解析
  *
- * 这样 VITE_API_PROXY 配 `http://localhost:8765` 或 `http://127.0.0.1:8765` 都能通。
+ * 这样 VITE_API_PROXY 配 `http://localhost:3200` 或 `http://127.0.0.1:3200` 都能通。
  */
 function ipv4FirstAgent(): http.Agent {
   return new http.Agent({
@@ -45,9 +45,9 @@ function ipv4FirstAgent(): http.Agent {
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  // dev 模式默认 proxy target；同时支持 http://localhost:8765 和 http://127.0.0.1:8765
+  // dev 模式默认 proxy target；同时支持 http://localhost:3200 和 http://127.0.0.1:3200
   //   （前者靠 ipv4FirstAgent 把 ::1 解析改成 127.0.0.1，后者直接用）
-  const proxyTarget = env.VITE_API_PROXY ?? "http://localhost:8765";
+  const proxyTarget = env.VITE_API_PROXY ?? "http://localhost:3200";
   const agent = ipv4FirstAgent();
 
   return {
@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      port: 5173,
+      port: 3210,
       proxy: {
         "/admin": {
           target: proxyTarget,

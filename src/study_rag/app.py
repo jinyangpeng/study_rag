@@ -98,7 +98,7 @@ def create_app() -> FastAPI:
             },
         ],
         servers=[
-            {"url": "http://localhost:8765", "description": "本地开发"},
+            {"url": "http://localhost:3200", "description": "本地开发"},
             {"url": "https://rag-admin.internal.example.com", "description": "生产内部"},
         ],
         docs_url="/docs",
@@ -180,7 +180,7 @@ if __name__ == "__main__":
 #
 #   python -m study_rag.mcp_standalone
 # 或：
-#   uvicorn study_rag.mcp_standalone:app --host 0.0.0.0 --port 8001
+#   uvicorn study_rag.mcp_standalone:app --host 0.0.0.0 --port 3220
 #
 # 用 MCP Inspector 调试：
-#   npx @modelcontextprotocol/inspector http://localhost:8001/mcp
+#   npx @modelcontextprotocol/inspector http://localhost:3220/mcp

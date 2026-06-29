@@ -29,11 +29,11 @@ docker compose -f docker/docker-compose.yml up -d --build
 #   或: just docker-up
 
 # 3. 验证
-curl http://localhost:8765/health        # admin 存活探针
-curl http://localhost:8001/health        # mcp 存活探针
-#   浏览器打开管理 UI: http://localhost:8765/admin/ui/
-#   OpenAPI 文档:      http://localhost:8765/docs
-#   MCP 端点:          http://localhost:8001/mcp
+curl http://localhost:3200/health        # admin 存活探针
+curl http://localhost:3220/health        # mcp 存活探针
+#   浏览器打开管理 UI: http://localhost:3200/admin/ui/
+#   OpenAPI 文档:      http://localhost:3200/docs
+#   MCP 端点:          http://localhost:3220/mcp
 ```
 
 带 Milvus 向量库的一体化部署：
@@ -52,7 +52,7 @@ study_rag 由两个独立进程组成，可独立扩缩容：
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │  admin REST  │     │  MCP server  │     │   Milvus     │
-│  :8765       │     │  :8001       │     │   :19530     │
+│  :3200       │     │  :3220       │     │   :19530     │
 │  - 管理 UI   │     │  - 10 Tools  │     │  (可选)      │
 │  - KB CRUD   │     │  - Resources │     │              │
 │  - 检索调试  │     │  - Prompts   │     │              │
@@ -68,8 +68,8 @@ study_rag 由两个独立进程组成，可独立扩缩容：
 
 | 进程 | 端口 | 用途 | 扩缩容 |
 |---|---|---|---|
-| admin | 8765 | 管理面 REST + SPA、健康检查、Prometheus 指标 | 可水平扩展（无状态，data 共享卷） |
-| mcp | 8001 | MCP streamable_http 端点（Agent 调用入口） | 可水平扩展 |
+| admin | 3200 | 管理面 REST + SPA、健康检查、Prometheus 指标 | 可水平扩展（无状态，data 共享卷） |
+| mcp | 3220 | MCP streamable_http 端点（Agent 调用入口） | 可水平扩展 |
 | milvus | 19530 | 向量库（可选，也可用 mock 或外部实例） | 独立运维 |
 
 > **为什么 admin 和 mcp 分进程？**
@@ -86,11 +86,11 @@ study_rag 由两个独立进程组成，可独立扩缩容：
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `STUDY_RAG_HOST` | `0.0.0.0` | admin 监听地址 |
-| `STUDY_RAG_PORT` | `8765` | admin 监听端口 |
+| `STUDY_RAG_PORT` | `3200` | admin 监听端口 |
 | `STUDY_RAG_LOG_LEVEL` | `INFO` | 日志级别 `DEBUG/INFO/WARNING/ERROR` |
 | `STUDY_RAG_WORKERS` | `1` | uvicorn worker 数（MCP 不受影响） |
 | `MCP_HOST` | `0.0.0.0` | MCP 监听地址 |
-| `MCP_PORT` | `8001` | MCP 监听端口 |
+| `MCP_PORT` | `3220` | MCP 监听端口 |
 
 ### 鉴权
 
@@ -188,8 +188,8 @@ just docker-build llamaindex,vector-milvus,embedding-openai,reranker-bge
 
 | 服务 | profile | 端口 | 说明 |
 |---|---|---|---|
-| `admin` | *(默认)* | 8765 | FastAPI 管理面 + SPA |
-| `mcp` | *(默认)* | 8001 | MCP streamable_http |
+| `admin` | *(默认)* | 3200 | FastAPI 管理面 + SPA |
+| `mcp` | *(默认)* | 3220 | MCP streamable_http |
 | `milvus` | `vector` | 19530 | Milvus Standalone |
 | `milvus-etcd` | `vector` | - | Milvus 元数据存储 |
 | `milvus-minio` | `vector` | - | Milvus 对象存储 |
@@ -291,9 +291,9 @@ just ui-install
 just ui-build
 
 # 3. 启动服务
-just admin    # admin REST (port 8765, --reload)
-just mcp      # MCP standalone (port 8001, --reload)
-just ui-dev   # Vite dev server (port 5173, HMR + proxy)
+just admin    # admin REST (port 3200, --reload)
+just mcp      # MCP standalone (port 3220, --reload)
+just ui-dev   # Vite dev server (port 3210, HMR + proxy)
 
 # 4. 调试 MCP
 just inspector   # MCP Inspector UI

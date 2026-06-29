@@ -70,7 +70,7 @@ function getStoredBaseURL(): string {
   // 优先用用户显式配置；否则用当前页面 origin（生产 build 嵌入 FastAPI）
   const stored = localStorage.getItem(BASE_URL_STORAGE_KEY);
   if (stored) return stored;
-  // dev 模式（vite dev 5173）：用相对路径，让 vite proxy 转发
+  // dev 模式（vite dev 3210）：用相对路径，让 vite proxy 转发
   if (import.meta.env.DEV) return "";
   // 生产：当前 origin
   return window.location.origin;

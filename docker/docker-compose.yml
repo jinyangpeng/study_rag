@@ -2,8 +2,8 @@
 #  study_rag docker-compose
 #
 #  服务:
-#    admin       : FastAPI 管理面 + SPA (port 8765)
-#    mcp         : MCP standalone server, streamable_http (port 8001)
+#    admin       : FastAPI 管理面 + SPA (port 3200)
+#    mcp         : MCP standalone server, streamable_http (port 3220)
 #    milvus-*    : 可选向量库 (profile=vector)
 #    dev-tools   : 调试 / 一次性任务 (profile=dev)
 #
@@ -43,7 +43,7 @@ services:
     environment:
       CONTAINER_ROLE: admin
       STUDY_RAG_HOST: "0.0.0.0"
-      STUDY_RAG_PORT: "8765"
+      STUDY_RAG_PORT: "3200"
       STUDY_RAG_LOG_LEVEL: ${STUDY_RAG_LOG_LEVEL:-info}
       # admin REST Bearer Token（未设置=不鉴权；生产务必设置）
       STUDY_RAG_ADMIN_TOKEN: ${STUDY_RAG_ADMIN_TOKEN:-}
@@ -62,7 +62,7 @@ services:
       LOCAL_EMBED_API_KEY: ${LOCAL_EMBED_API_KEY:-}
       LOCAL_RERANK_API_KEY: ${LOCAL_RERANK_API_KEY:-}
     ports:
-      - "${ADMIN_PORT:-8765}:8765"
+      - "${ADMIN_PORT:-3200}:3200"
     volumes:
       # 配置目录：admin REST 支持运行时写 KB/embedder/reranker 配置，故需可写
       # 生产环境若要锁定配置，可改为 :ro 并禁用 admin 配置写入接口
@@ -72,7 +72,7 @@ services:
     networks:
       - rag-net
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3200/health"]
       interval: 30s
       timeout: 5s
       start_period: 20s
@@ -88,7 +88,7 @@ services:
     environment:
       CONTAINER_ROLE: mcp
       MCP_HOST: "0.0.0.0"
-      MCP_PORT: "8001"
+      MCP_PORT: "3220"
       STUDY_RAG_LOG_LEVEL: ${STUDY_RAG_LOG_LEVEL:-info}
       STUDY_RAG_MCP_REQUIRE_API_KEY: ${STUDY_RAG_MCP_REQUIRE_API_KEY:-false}
       MILVUS_URI: ${MILVUS_URI:-http://milvus:19530}
@@ -102,7 +102,7 @@ services:
       LOCAL_EMBED_API_KEY: ${LOCAL_EMBED_API_KEY:-}
       LOCAL_RERANK_API_KEY: ${LOCAL_RERANK_API_KEY:-}
     ports:
-      - "${MCP_PORT:-8001}:8001"
+      - "${MCP_PORT:-3220}:3220"
     depends_on:
       admin:
         condition: service_healthy
@@ -113,7 +113,7 @@ services:
     networks:
       - rag-net
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8001/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3220/health"]
       interval: 30s
       timeout: 5s
       start_period: 20s

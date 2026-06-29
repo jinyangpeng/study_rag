@@ -3,7 +3,7 @@
 启动方式：
     python -m study_rag.mcp_standalone
     # 或：
-    uvicorn study_rag.mcp_standalone:app --host 0.0.0.0 --port 8001
+    uvicorn study_rag.mcp_standalone:app --host 0.0.0.0 --port 3220
 
 端点：
     POST/GET http://HOST:PORT/mcp      # JSON-RPC over streamable HTTP
@@ -24,7 +24,7 @@
   - ASGI lifespan 事件透传给 FastMCP 的 streamable_http_app（它自管 session manager）
 
 MCP Inspector 调试：
-    npx @modelcontextprotocol/inspector http://localhost:8001/mcp
+    npx @modelcontextprotocol/inspector http://localhost:3220/mcp
 """
 
 from __future__ import annotations
@@ -159,7 +159,7 @@ def main() -> None:
     import uvicorn
 
     settings = get_server_settings()
-    port = int(os.environ.get("MCP_PORT", "8001"))
+    port = int(os.environ.get("MCP_PORT", "3220"))
     host = os.environ.get("MCP_HOST", settings.host)
     logger.info("starting_mcp_standalone", host=host, port=port, endpoint="/mcp")
 
